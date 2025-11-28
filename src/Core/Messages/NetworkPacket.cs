@@ -1,3 +1,5 @@
+using System.Net;
+
 namespace FalconNode.Core.Messages;
 
 /// <summary>
@@ -9,6 +11,7 @@ namespace FalconNode.Core.Messages;
 /// </remarks>
 public readonly record struct NetworkPacket
 {
+    public readonly IPEndPoint Origin;
     public readonly ulong Timestamp;
     public readonly uint RequestId;
     public readonly byte MessageType;
@@ -17,12 +20,14 @@ public readonly record struct NetworkPacket
 
 
     public NetworkPacket(
+        IPEndPoint origin,
         byte messageType,
         uint requestId,
         Memory<byte> payload,
         byte[] originalBuffer
     )
     {
+        Origin = origin;
         MessageType = messageType;
         RequestId = requestId;
         Payload = payload;
