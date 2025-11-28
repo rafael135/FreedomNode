@@ -1,0 +1,24 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.5.2.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FalconNode", "FalconNode.csproj", "{E45E6D3D-0BDE-4991-351E-39DB520B48CE}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{E45E6D3D-0BDE-4991-351E-39DB520B48CE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E45E6D3D-0BDE-4991-351E-39DB520B48CE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E45E6D3D-0BDE-4991-351E-39DB520B48CE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E45E6D3D-0BDE-4991-351E-39DB520B48CE}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {AA2BFC77-F338-406D-8242-632FC91199C4}
+	EndGlobalSection
+EndGlobal
