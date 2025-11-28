@@ -54,6 +54,10 @@ public readonly struct FixedHeader
         Checksum = checksum;
     }
 
+    /// <summary>
+    /// Writes the fixed header to the provided destination span.
+    /// </summary>
+    /// <param name="destination">The span to write the fixed header to.</param>
     public void WriteToSpan(Span<byte> destination)
     {
         destination[0] = Version;
@@ -66,6 +70,11 @@ public readonly struct FixedHeader
         BinaryPrimitives.WriteUInt32BigEndian(destination.Slice(12, 4), Checksum);
     }
 
+    /// <summary>
+    /// Reads a fixed header from the provided source span.
+    /// </summary>
+    /// <param name="source">The span to read the fixed header from.</param>
+    /// <returns>A <see cref="FixedHeader"/> instance populated with data from the span.</returns>
     public static FixedHeader ReadFromSpan(ReadOnlySpan<byte> source)
     {
         return new FixedHeader(

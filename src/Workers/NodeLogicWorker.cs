@@ -2,6 +2,12 @@ using System.Buffers;
 using System.Threading.Channels;
 using FalconNode.Core.Messages;
 
+namespace FalconNode.Workers;
+
+
+/// <summary>
+/// Worker responsible for processing incoming network packets and implementing node logic.
+/// </summary>
 public class NodeLogicWorker : BackgroundService
 {
     private readonly ChannelReader<NetworkPacket> _incomingReader;
@@ -35,6 +41,11 @@ public class NodeLogicWorker : BackgroundService
         }
     }
 
+
+    /// <summary>
+    /// Processes an incoming network packet based on its message type.
+    /// </summary>
+    /// <param name="packet">The network packet to process.</param>
     private void ProcessPacket(NetworkPacket packet)
     {
         _logger.LogInformation(

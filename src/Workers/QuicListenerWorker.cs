@@ -4,6 +4,12 @@ using System.Threading.Channels;
 using FalconNode.Core.Messages;
 using FalconNode.Core.Network;
 
+namespace FalconNode.Workers;
+
+
+/// <summary>
+/// Worker responsible for listening for incoming QUIC connections and processing incoming network packets.
+/// </summary>
 public class QuicListenerWorker : BackgroundService
 {
     private readonly ChannelWriter<NetworkPacket> _incomingWriter;
