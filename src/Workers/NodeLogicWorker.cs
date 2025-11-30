@@ -1,11 +1,14 @@
 using System.Buffers;
 using System.Buffers.Binary;
 using System.Net;
+using System.Security.Cryptography;
 using System.Threading.Channels;
 using FalconNode.Core.Crypto;
+using FalconNode.Core.Dht;
 using FalconNode.Core.Messages;
 using FalconNode.Core.Network;
 using FalconNode.Core.State;
+using FalconNode.Core.Storage;
 using NSec.Cryptography;
 
 namespace FalconNode.Workers;
@@ -18,6 +21,9 @@ public class NodeLogicWorker : BackgroundService
     private readonly ChannelReader<NetworkPacket> _incomingReader;
     private readonly ChannelWriter<OutgoingMessage> _outgoingWriter;
     private readonly PeerTable _peerTable;
+    private readonly RoutingTable _routingTable;
+
+    private readonly BlobStore _blobStore;
 
     // Static algorithms to avoid reallocation overhead
     private static readonly SignatureAlgorithm _ed25519 = SignatureAlgorithm.Ed25519;
@@ -32,12 +38,14 @@ public class NodeLogicWorker : BackgroundService
         Channel<NetworkPacket> channel,
         Channel<OutgoingMessage> outgoingChannel,
         PeerTable peerTable,
+        RoutingTable routingTable,
         ILogger<NodeLogicWorker> logger
     )
     {
         _incomingReader = channel.Reader;
         _outgoingWriter = outgoingChannel.Writer;
         _peerTable = peerTable;
+        _routingTable = routingTable;
         _logger = logger;
     }
 
@@ -81,6 +89,79 @@ public class NodeLogicWorker : BackgroundService
             0x03 => this.HandleDhtLookup(packet),
             _ => this.HandleUnknown(packet),
         };
+    }
+
+    private async void HandleStore(NetworkPacket packet)
+    {
+        try
+        {
+            // 1. Extract data
+            byte[] dataToStore = packet.Payload.ToArray();
+
+            // 2. Persists data
+            byte[] hash = await _blobStore.StoreAsync(dataToStore);
+
+            // 3. Responds with "OK" and hash
+            int responseSize = 32;
+            byte[] responseBuffer = ArrayPool<byte>.Shared.Rent(FixedHeader.Size + responseSize);
+
+            new FixedHeader(0x06, packet.RequestId, (uint)responseSize).WriteToSpan(
+                responseBuffer.AsSpan(0, FixedHeader.Size)
+            );
+
+            hash.CopyTo(responseBuffer.AsSpan(0, FixedHeader.Size));
+
+            _outgoingWriter.TryWrite(
+                new OutgoingMessage(
+                    packet.Origin,
+                    responseBuffer.AsMemory(0, FixedHeader.Size + responseSize),
+                    responseBuffer
+                )
+            );
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Store failed.");
+        }
+    }
+
+    private async void HandleFetch(NetworkPacket packet)
+    {
+        try
+        {
+            if (packet.Payload.Length < 32)
+                return;
+
+            byte[] requestedHash = packet.Payload.Slice(0, 32).ToArray();
+
+            // 1. Try to retrieve data
+            byte[]? data = await _blobStore.RetrieveAsync(requestedHash);
+
+            if (data == null)
+            {
+                // TODO: Send NOT_FOUND (0x404?)
+                return;
+            }
+
+            // 2. Send data
+            // Header (0x08 = FETCH_RES)
+            int totalSize = FixedHeader.Size + data.Length;
+            byte[] packetBuffer = ArrayPool<byte>.Shared.Rent(totalSize);
+
+            data.CopyTo(packetBuffer.AsSpan(FixedHeader.Size));
+
+            _outgoingWriter.TryWrite(
+                new OutgoingMessage(
+                    packet.Origin,
+                    packetBuffer.AsMemory(0, totalSize),
+                    packetBuffer
+                )
+            );
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Fetch failed.");
+        }
     }
 
     /// <summary>
@@ -180,7 +261,46 @@ public class NodeLogicWorker : BackgroundService
 
     private bool HandleDhtLookup(NetworkPacket packet)
     {
-        _logger.LogInformation("Handling DHT Lookup packet.");
+        if (packet.Payload.Length < 32)
+            return false;
+
+        var request = FindNodeRequest.ReadFromSpan(packet.Payload.Span);
+
+        _logger.LogInformation($"DHT: Received FindNode request for NodeId: {request.TargetId}");
+
+        if (_peerTable.TryGetPeerKey(packet.Origin, out var originKey))
+        {
+            // Example of deriving NodeId from peer's onion key
+            var originNodeId = new NodeId(SHA256.HashData(originKey));
+            _routingTable.AddContact(new Contact(originNodeId, packet.Origin));
+        }
+
+        // Find closest nodes to the target on our table
+        List<Contact> closestNodes = _routingTable.FindClosest(request.TargetId);
+
+        // Build the response
+        FindNodeResponse response = new FindNodeResponse(closestNodes);
+        int responseSize = response.CalculateSize();
+
+        // Header + Payload
+        byte[] packetBuffer = ArrayPool<byte>.Shared.Rent(FixedHeader.Size + responseSize);
+
+        // Header (0x04 = FIND_NODE_RES)
+        var header = new FixedHeader(0x04, packet.RequestId, (uint)responseSize);
+        header.WriteToSpan(packetBuffer.AsSpan(0, FixedHeader.Size));
+
+        // Payload
+        response.WriteToSpan(packetBuffer.AsSpan(FixedHeader.Size));
+
+        // Send response back to requester
+        OutgoingMessage outgoingMessage = new OutgoingMessage(
+            packet.Origin,
+            packetBuffer.AsMemory(0, FixedHeader.Size + responseSize),
+            packetBuffer
+        );
+
+        _outgoingWriter.TryWrite(outgoingMessage);
+
         return true;
     }
 

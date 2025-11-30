@@ -1,11 +1,11 @@
 using System.Buffers;
+using System.Net;
 using System.Net.Quic;
 using System.Threading.Channels;
 using FalconNode.Core.Messages;
 using FalconNode.Core.Network;
 
 namespace FalconNode.Workers;
-
 
 /// <summary>
 /// Worker responsible for listening for incoming QUIC connections and processing incoming network packets.
@@ -25,18 +25,18 @@ public class QuicListenerWorker : BackgroundService
     {
         _logger.LogInformation("QUIC Listener Worker started.");
 
+        // Simulation of listening loop.
+        // In production, you would get the 'remoteEndPoint' from listener.AcceptConnectionAsync()
         while (!stoppingToken.IsCancellationRequested)
         {
-            // Simulate receiving a packet for demonstration purposes
-            //await this._incomingWriter.WriteAsync(packet, stoppingToken);
-
-            // TODO: Replace with actual QUIC listening and packet receiving logic
-            // TODO: Process incoming QUIC connections and read packets
+            // TODO: Replace with actual QUIC listening logic
+            // var connection = await listener.AcceptConnectionAsync(stoppingToken);
+            // _ = ProcessConnectionAsync(stream, connection.RemoteEndPoint, stoppingToken);
 
             await Task.Delay(1000, stoppingToken);
         }
     }
-    
+
     /// <summary>
     /// Processes an incoming QUIC connection by reading packets from the provided <paramref name="networkStream"/>.
     /// Each packet consists of a fixed-size header and a variable-size payload. The method enforces a maximum payload size limit,
@@ -44,10 +44,11 @@ public class QuicListenerWorker : BackgroundService
     /// Buffers are rented from <see cref="ArrayPool{T}"/> for efficient memory usage and returned appropriately to avoid leaks.
     /// </summary>
     /// <param name="networkStream">The network stream representing the QUIC connection.</param>
+    /// <param name="remoteEndPoint">The endpoint of the client that initiated the connection.</param>
     /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
-    /// <returns>A task representing the asynchronous operation.</returns>
     public async Task ProcessConnectionAsync(
         Stream networkStream,
+        IPEndPoint remoteEndPoint,
         CancellationToken cancellationToken
     )
     {
@@ -62,8 +63,10 @@ public class QuicListenerWorker : BackgroundService
 
                 int bytesRead = await networkStream.ReadAtLeastAsync(
                     headerBuffer.AsMemory(0, FixedHeader.Size),
-                    FixedHeader.Size
+                    FixedHeader.Size,
+                    cancellationToken: cancellationToken
                 );
+
                 if (bytesRead == 0)
                 {
                     break; // Connection closed
@@ -74,8 +77,9 @@ public class QuicListenerWorker : BackgroundService
                 if (header.PayloadLength > 1024 * 1024 * 5) // 5 MB limit
                 {
                     _logger.LogWarning(
-                        "Received packet with excessive payload length: {PayloadLength} bytes. Closing connection.",
-                        header.PayloadLength
+                        "Received packet with excessive payload length: {PayloadLength} bytes from {Remote}. Closing connection.",
+                        header.PayloadLength,
+                        remoteEndPoint
                     );
                     break; // Close connection on excessive payload
                 }
@@ -94,16 +98,17 @@ public class QuicListenerWorker : BackgroundService
                     );
 
                     var packet = new NetworkPacket(
-                        header.MessageType,
-                        header.RequestId,
-                        payloadBuffer.AsMemory(0, (int)header.PayloadLength),
-                        payloadBuffer
+                        remoteEndPoint, // 1. Origin
+                        header.MessageType, // 2. Type
+                        header.RequestId, // 3. Request ID
+                        payloadBuffer.AsMemory(0, (int)header.PayloadLength), // 4. Payload
+                        payloadBuffer // 5. Original buffer reference
                     );
 
                     await this._incomingWriter.WriteAsync(packet, cancellationToken);
                     success = true;
 
-                    // TODO: Process the payload as needed
+                    // TODO: Process the payload as needed (handled by NodeLogicWorker via Channel)
                 }
                 finally
                 {
@@ -118,7 +123,7 @@ public class QuicListenerWorker : BackgroundService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error processing QUIC connection.");
+            _logger.LogError(ex, $"Error processing QUIC connection from {remoteEndPoint}.");
         }
         finally
         {

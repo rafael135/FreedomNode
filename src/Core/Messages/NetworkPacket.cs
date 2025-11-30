@@ -11,13 +11,35 @@ namespace FalconNode.Core.Messages;
 /// </remarks>
 public readonly record struct NetworkPacket
 {
+    /// <summary>
+    /// The origin endpoint of the packet.
+    /// </summary>
     public readonly IPEndPoint Origin;
-    public readonly ulong Timestamp;
-    public readonly uint RequestId;
-    public readonly byte MessageType;
-    public readonly Memory<byte> Payload;
-    public readonly byte[] OriginalBufferReference;
 
+    /// <summary>
+    /// The timestamp indicating when the packet was created, in milliseconds since Unix epoch.
+    /// </summary>
+    public readonly ulong Timestamp;
+
+    /// <summary>
+    /// The unique request ID associated with the packet.
+    /// </summary>
+    public readonly uint RequestId;
+
+    /// <summary>
+    /// The type of the message contained in the packet.
+    /// </summary>
+    public readonly byte MessageType;
+
+    /// <summary>
+    /// The payload data of the packet.
+    /// </summary>
+    public readonly Memory<byte> Payload;
+
+    /// <summary>
+    /// A reference to the original byte buffer containing the packet data.
+    /// </summary>
+    public readonly byte[] OriginalBufferReference;
 
     public NetworkPacket(
         IPEndPoint origin,

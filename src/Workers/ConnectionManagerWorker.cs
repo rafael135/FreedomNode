@@ -10,6 +10,9 @@ namespace FalconNode.Workers;
 /// <summary>
 /// Worker responsible for managing QUIC connections and sending outgoing messages.
 /// </summary>
+/// <summary>
+/// Manages active connections and handles connection lifecycle events for the node.
+/// </summary>
 public class ConnectionManagerWorker : BackgroundService
 {
     private readonly ChannelReader<OutgoingMessage> _outReader;
@@ -20,7 +23,6 @@ public class ConnectionManagerWorker : BackgroundService
         _outReader = outChannel.Reader;
     }
 
-    
     /// <summary>
     /// Executes the main loop of the Connection Manager Worker, processing outgoing messages and managing QUIC connections.
     /// </summary>

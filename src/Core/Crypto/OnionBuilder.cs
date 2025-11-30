@@ -5,7 +5,6 @@ using NSec.Cryptography;
 
 namespace FalconNode.Core.Crypto;
 
-
 /// <summary>
 /// Provides functionality to construct onion-encrypted packets for multi-hop routing.
 /// </summary>
@@ -46,7 +45,6 @@ public static class OnionBuilder
         byte[] currentPayload = new byte[1 + finalMessage.Length];
         currentPayload[0] = 0x00; // Final message indicator
         finalMessage.CopyTo(currentPayload.AsSpan(1));
-
 
         // 2. Reverse loop: build layers from last hop to first
         for (int i = route.Count - 1; i >= 0; i--)

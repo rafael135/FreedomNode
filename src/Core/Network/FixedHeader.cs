@@ -11,6 +11,9 @@ namespace FalconNode.Core.Network;
 /// It contains metadata for a network message, including version, flags, message type, reserved byte,
 /// unique request ID, payload length, and CRC32 checksum.
 /// </remarks>
+/// <summary>
+/// Represents the fixed header portion of a network packet.
+/// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public readonly struct FixedHeader
 {

@@ -3,9 +3,11 @@ using NSec.Cryptography;
 
 namespace FalconNode.Core.Crypto;
 
-
 /// <summary>
 /// Provides helper methods for cryptographic operations such as key agreement and layer encryption/decryption.
+/// </summary>
+/// <summary>
+/// Provides cryptographic helper methods for encryption, decryption, and hashing operations.
 /// </summary>
 public static class CryptoHelper
 {
