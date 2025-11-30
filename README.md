@@ -101,8 +101,6 @@ Incremental port checklist:
 
 ## Tests & recomendações
 
-## Tests & recomendações
-
 - Automated unit tests exist under `tests/FreedomNode.Tests` and cover core behaviors (FixedHeader, HandshakePayload, NodeLogicWorker flows, BlobStore helpers). Run them locally with:
 
 ```powershell
@@ -125,5 +123,3 @@ Se quiser, posso abrir um PR com um conjunto de templates (ISSUE_TEMPLATE / PULL
 - Nova mensagem: implementar payload em `src/Core/Messages`, adicionar parsing/handler no `NodeLogicWorker` e escrever testes.
 
 ---
-
-Se desejar, eu posso também gerar um `CONTRIBUTING.md` com checklists de portabilidade, exemplos de testes de compatibilidade binária (C# <-> Rust) e instruções de CI.
