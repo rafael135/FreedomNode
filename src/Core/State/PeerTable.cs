@@ -19,6 +19,11 @@ public class PeerMetadata
     /// Higher is better.
     /// </summary>
     public int Reputation { get; set; }
+
+    /// <summary>
+    /// The public key of the peer.
+    /// </summary>
+    public byte[]? OnionKey { get; set; }
 }
 
 /// <summary>
@@ -48,5 +53,47 @@ public class PeerTable
     public List<IPEndPoint> GetRandomPeers(int count)
     {
         return _knownPeers.Keys.Take(count).ToList();
+    }
+
+    /// <summary>
+    /// Registers an authenticated peer with its onion key.
+    /// </summary>
+    /// <param name="endpoint">Endpoint of the peer.</param>
+    /// <param name="onionKey">Onion key of the peer.</param>
+    public void RegisterAuthenticatedPeer(IPEndPoint endpoint, byte[] onionKey)
+    {
+        _knownPeers.AddOrUpdate(
+            endpoint,
+            new PeerMetadata
+            {
+                LastSeen = DateTime.UtcNow,
+                Reputation = 50,
+                OnionKey = onionKey,
+            },
+            (key, existing) =>
+            {
+                existing.LastSeen = DateTime.UtcNow;
+                existing.OnionKey = onionKey;
+                return existing;
+            }
+        );
+    }
+
+    /// <summary>
+    /// Tries to get the onion key of a known peer.
+    /// </summary>
+    /// <param name="endpoint">Endpoint of the peer.</param>
+    /// <param name="onionKey">Onion key of the peer.</param>
+    /// <returns>True if the onion key was found; otherwise, false.</returns>
+    public bool TryGetPeerKey(IPEndPoint endpoint, out byte[] onionKey)
+    {
+        onionKey = null;
+
+        if (_knownPeers.TryGetValue(endpoint, out var meta) && meta.OnionKey != null)
+        {
+            onionKey = meta.OnionKey;
+            return true;
+        }
+        return false;
     }
 }

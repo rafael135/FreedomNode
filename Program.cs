@@ -4,9 +4,9 @@ using FalconNode.Core.Messages;
 using FalconNode.Core.State;
 using FalconNode.Workers;
 
-var builder = Host.CreateApplicationBuilder(args);
+HostApplicationBuilder builder = Host.CreateApplicationBuilder(args);
 
-var inChannel = Channel.CreateBounded<NetworkPacket>(
+Channel<NetworkPacket> inChannel = Channel.CreateBounded<NetworkPacket>(
     new BoundedChannelOptions(2000)
     {
         FullMode = BoundedChannelFullMode.Wait,
@@ -15,7 +15,7 @@ var inChannel = Channel.CreateBounded<NetworkPacket>(
     }
 );
 
-var outChannel = Channel.CreateBounded<OutgoingMessage>(
+Channel<OutgoingMessage> outChannel = Channel.CreateBounded<OutgoingMessage>(
     new BoundedChannelOptions(2000)
     {
         FullMode = BoundedChannelFullMode.Wait,
@@ -28,7 +28,6 @@ var outChannel = Channel.CreateBounded<OutgoingMessage>(
 builder.Services.AddSingleton(inChannel);
 builder.Services.AddSingleton(outChannel);
 
-
 // Shared State
 builder.Services.AddSingleton<PeerTable>();
 
@@ -37,5 +36,5 @@ builder.Services.AddHostedService<QuicListenerWorker>();
 builder.Services.AddHostedService<NodeLogicWorker>();
 builder.Services.AddHostedService<ConnectionManagerWorker>();
 
-var host = builder.Build();
+IHost host = builder.Build();
 host.Run();
