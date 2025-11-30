@@ -101,10 +101,25 @@ Incremental port checklist:
 
 ## Tests & recomendações
 
-- Atualmente não há testes automatizados no MVP.
-- Recomenda-se adicionar testes unitários para: FixedHeader, Handshake payload, onion layer encrypt/decrypt round-trip e BlobStore (store/retrieve/atomic write).
+## Tests & recomendações
 
-## Como estender
+- Automated unit tests exist under `tests/FreedomNode.Tests` and cover core behaviors (FixedHeader, HandshakePayload, NodeLogicWorker flows, BlobStore helpers). Run them locally with:
+
+```powershell
+dotnet test tests\FreedomNode.Tests
+```
+
+- Recommended additional tests: onion-layer round-trip, large blob chunking, and integration tests that exercise QUIC paths when native runtimes are present.
+---
+
+Contribuições:
+- Quer contribuir? Veja `CONTRIBUTING.md` (criado no repo) para orientações de PR, testes e checklist de revisão.
+
+Referências úteis
+- AI agent guidance: `.github/copilot-instructions.md` — curto e direto para contribuir com segurança e velocidade.
+
+---
+Se quiser, posso abrir um PR com um conjunto de templates (ISSUE_TEMPLATE / PULL_REQUEST_TEMPLATE) e adicionar instruções de CI para executar os testes em cada PR.
 
 - Adicionar um novo worker: criar `BackgroundService` sob `src/Workers/` e registrá-lo em `Program.cs`.
 - Nova mensagem: implementar payload em `src/Core/Messages`, adicionar parsing/handler no `NodeLogicWorker` e escrever testes.
