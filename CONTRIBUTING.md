@@ -25,6 +25,8 @@ dotnet test tests\FreedomNode.Tests
 - Test patterns used in the repo:
   - Use `Channel.CreateBounded<T>` to simulate in/out channels for workers.
   - Allocate buffers with `ArrayPool<byte>.Shared.Rent(...)` and ensure `Return(...)` in finally blocks.
+  - Note: `BlobStore.StoreAsync` now accepts `ReadOnlyMemory<byte>`; tests should pass ReadOnlyMemory where possible instead of creating intermediate arrays.
+  - Retrieve methods: use `RetrieveBytesAsync` for small blobs, `RetrieveToStreamAsync` or `RetrieveToBufferAsync` for larger blobs.
   - Compose binary messages by writing `FixedHeader` then payload; tests use ReadFromSpan/WriteToSpan helpers.
 
 ## Revisão de PR — checklist curto
@@ -44,7 +46,7 @@ dotnet test tests\FreedomNode.Tests
 
 - Binary protocol
   - Messages use `FixedHeader` (FixedHeader.Size) and typed payloads. Keep write/read helpers symmetrical.
-  - Message types: 0x01=Handshake, 0x02=Onion, 0x03=FindNode(req), 0x04=FindNode(res), 0x06=Store res, 0x08=Fetch res.
+  - Message types: 0x01=Handshake, 0x02=Onion, 0x03=FindNode(req), 0x04=FindNode(res), 0x05=STORE(req), 0x06=STORE_RES(res), 0x07=FETCH(req), 0x08=FETCH_RES(res).
 
 - Crypto
   - NSec keys are used for ed25519 (sign/verify) and X25519 (session keys). Keep identity keys and onion keys separate.
@@ -54,6 +56,8 @@ dotnet test tests\FreedomNode.Tests
 2. Use DI to accept channels or singletons (PeerTable, RoutingTable, BlobStore) that your worker needs.
 3. Registre o worker no `Program.cs` via `AddHostedService<SeuWorker>()`.
 4. Escreva testes que usem bounded channels and NullLogger to exercise the loop.
+
+Note: `NodeLogicWorker` constructor now requires `BlobStore` and `FileIngestor` in addition to the channels and tables. Tests should create and inject a `BlobStore` and `FileIngestor` (use `NullLogger` variants) and construct NodeSettings with a port parameter where necessary.
 
 ## Como adicionar uma nova mensagem tipo
 1. Defina estrutura/size e helpers `ReadFromSpan/WriteToSpan` em `src/Core/Messages`.

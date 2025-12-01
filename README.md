@@ -14,7 +14,7 @@ Este nó é pensado para ser a base de infraestrutura de uma rede social descent
 
 ## Arquitetura & fluxo de dados
 
-1. Startup inicializa `NodeSettings` (NodeId aleatório) e registra singletons: `PeerTable`, `RoutingTable`, `BlobStore`.
+1. Startup inicializa `NodeSettings` (NodeId aleatório + configured ports) e registra singletons: `PeerTable`, `RoutingTable`, `BlobStore`, `FileIngestor`.
 2. Dois canais bounded (entrada e saída) atravessam os workers: `Channel<NetworkPacket>` (entrada) e `Channel<OutgoingMessage>` (saída).
 3. `QuicListenerWorker` aceita conexões/streams QUIC, lê um `FixedHeader` + payload, e publica `NetworkPacket` no canal de entrada.
 4. `NodeLogicWorker` consome `NetworkPacket`s, aplica processamento (handshake, onion peeling, DHT, store/fetch) e escreve respostas/encaminhamentos no canal de saída.
@@ -25,7 +25,15 @@ Este nó é pensado para ser a base de infraestrutura de uma rede social descent
 - FixedHeader — 16 bytes (big-endian onde aplicável):
   - Version (1 byte)
   - Flags (1 byte)
-  - MessageType (1 byte) — ex.: 0x01 = Handshake, 0x02 = Onion, 0x03 = DHT find node, 0x04 = FindNode response, 0x06 = Store result, 0x08 = Fetch res
+  - MessageType (1 byte) — examples used by NodeLogicWorker:
+    - 0x01 = Handshake
+    - 0x02 = Onion
+    - 0x03 = DHT find node (request)
+    - 0x04 = FindNode response
+    - 0x05 = STORE (store request)
+    - 0x06 = STORE_RES (store result / response)
+    - 0x07 = FETCH (fetch request)
+    - 0x08 = FETCH_RES (fetch response)
   - Reserved (1 byte)
   - RequestId (4 bytes)
   - PayloadLength (4 bytes)
@@ -65,6 +73,18 @@ dotnet run --project FalconNode.csproj
 ## Storage
 
 - `BlobStore` persiste blobs em `AppContext.BaseDirectory/data/blobs/` usando o hex SHA-256 como filename. Gravações usam arquivo temporário + rename para atomicidade.
+
+API notes (current implementation):
+
+- StoreAsync(ReadOnlyMemory<byte>): optimized to accept ReadOnlyMemory and avoid extra allocations (used widely by workers and FileIngestor).
+- RetrieveBytesAsync(byte[] hash): returns a byte[] (preferred for small manifests / metadata).
+- RetrieveToStreamAsync(byte[] hash, Stream target): stream blobs directly into a Stream for large payloads.
+- RetrieveToBufferAsync(byte[] hash, Memory<byte> destination): read directly into an existing buffer.
+- HasBlob / GetBlobSize for quick existence/size checks.
+
+File ingestion and publishing
+
+- `FileIngestor` implements chunking + manifest creation (src/Core/FS/FileIngestor.cs). `NodeLogicWorker` uses `FileIngestor.IngestAsync` for `PublishMessageAsync`, returning a manifest/message id that can be propagated in the DHT.
 
 ### Considerações sobre armazenamento de mídia (mensagens, imagens, vídeo)
 
