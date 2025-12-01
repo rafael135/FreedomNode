@@ -7,6 +7,7 @@ FreedomNode é um MVP (prova de conceito) em C#/.NET para redes descentralizadas
 Este nó é pensado para ser a base de infraestrutura de uma rede social descentralizada: cada instância (nó) atua como host/armazenamento para conteúdos do tipo mensagens, imagens, vídeos e outros ficheiros enviados pelos usuários. O MVP concentra-se em provar os blocos técnicos essenciais — identidade, handshakes autenticados, roteamento DHT e armazenamento content-addressed via SHA-256 — antes de migrar para uma implementação de alta performance em Rust.
 
 ## Visão Geral
+
 - **Core:** Lógica principal do protocolo, incluindo criptografia, DHT, mensagens, rede e gerenciamento de estado.
 - **Storage:** Persistência de dados e manipulação de mensagens de armazenamento.
 - **Workers:** Workers para tarefas de longa duração, como gerenciamento de conexões, lógica de nó e escuta QUIC.
@@ -80,7 +81,6 @@ dotnet run -- --debug --port 5001 --seed 5000
   - fetch <manifestHash> — reassemble manifest via `FileRetriever` and display content
   - send-store <port> <text> — craft a STORE request (0x05) and send to a remote port (useful for manual protocol experiments)
 
-
 ## Observabilidade & padrões de performance
 
 - Uso intensivo de `ArrayPool<byte>` para reduzir pressão do GC — ao modificar código, preserve o contrato de ownership e retorno dos buffers.
@@ -109,10 +109,12 @@ File ingestion and publishing
 - `FileRetriever` (src/Core/FS/FileRetriever.cs) reconstitui arquivos a partir do manifesto, usando `BlobStore.RetrieveToStreamAsync` para escrever cada chunk diretamente em um Stream (sem alocar buffers desnecessários).
 
 Limites & comportamento atual:
+
 - O `QuicListenerWorker` ainda tem um limite de payload por pacote (ver `QuicListenerWorker.cs`); para arquivos grandes o fluxo de FileIngestor + manifests/Fetch é a abordagem recomendada.
 - O `BlobStore` não precisa mais receber arquivos inteiros quando trabalhar com arquivos grandes — o padrão atual é armazenar chunks + um pequeno manifesto. Isso reduz uso de memória e permite streaming de volta ao cliente.
 
 Práticas recomendadas para produção / port para Rust (continua relevante):
+
 1. Manter chunking + streaming para arquivos grandes e validar cross-language compatibilidade com manifests.
 2. Implementar descoberta/recuperação de chunks ausentes via DHT/network (o reassembler atual lê apenas do armazenamento local).
 3. Adicionar retenção, quotas, e políticas de replicação/peering para disponibilidade.
@@ -138,6 +140,7 @@ Mapeamentos recomendados:
 - Buffer reuse: bytes::BytesMut / pools
 
 Incremental port checklist:
+
 1. Reimplemente FixedHeader & HandshakePayload em Rust com testes binários de compatibilidade.
 2. Implementar BlobStore no Rust e validar com blobs criados pelo C# (teste cross-language).
 3. Portar crypto helpers e validar com vetores/assinaturas do C#.
@@ -152,12 +155,15 @@ dotnet test tests\FreedomNode.Tests
 ```
 
 - Recommended additional tests: onion-layer round-trip, large blob chunking, and integration tests that exercise QUIC paths when native runtimes are present.
+
 ---
 
 Contribuições:
+
 - Quer contribuir? Veja `CONTRIBUTING.md` (criado no repo) para orientações de PR, testes e checklist de revisão.
 
 Referências úteis
+
 - AI agent guidance: `.github/copilot-instructions.md` — curto e direto para contribuir com segurança e velocidade.
 
 ---
