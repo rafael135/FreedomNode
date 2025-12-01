@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    name: Build & Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore FalconNode.sln
+
+      - name: Build
+        run: dotnet build FalconNode.sln --no-restore --configuration Debug
+
+      - name: Test
+        run: dotnet test tests/FreedomNode.Tests/FreedomNode.Tests.csproj --no-build --verbosity normal
+
+  docs:
+    name: Docs check (lint + build)
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install markdownlint-cli
+        run: npm install --global markdownlint-cli
+
+      - name: Lint docs (README.md, CONTRIBUTING.md)
+        run: markdownlint README.md CONTRIBUTING.md
+
+      - name: Optional build sanity check
+        run: dotnet build FalconNode.sln --no-restore --configuration Debug
