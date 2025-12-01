@@ -2,9 +2,11 @@ using System.Buffers;
 using System.Buffers.Binary;
 using System.Net;
 using System.Security.Cryptography;
+using System.Text;
 using System.Threading.Channels;
 using FalconNode.Core.Crypto;
 using FalconNode.Core.Dht;
+using FalconNode.Core.FS;
 using FalconNode.Core.Messages;
 using FalconNode.Core.Network;
 using FalconNode.Core.State;
@@ -14,24 +16,71 @@ using NSec.Cryptography;
 namespace FalconNode.Workers;
 
 /// <summary>
-/// Worker responsible for processing incoming network packets and implementing node logic.
+/// The <c>NodeLogicWorker</c> class is responsible for handling the core logic of a network node,
+/// including processing incoming network packets, managing peer and routing tables, storing and retrieving blobs,
+/// ingesting files, and handling cryptographic operations for identity and onion routing.
+/// It operates as a background service, reading packets from an incoming channel, processing them asynchronously,
+/// and writing responses or outgoing messages to an outgoing channel.
+/// The worker supports handshake authentication, onion routing, DHT node lookups, blob storage and retrieval,
+/// and message publishing. It optimizes memory usage by leveraging buffer pooling and direct memory operations,
+/// and provides detailed logging for operational visibility and error handling.
 /// </summary>
 public class NodeLogicWorker : BackgroundService
 {
+    /// <summary>
+    /// Channel reader for incoming network packets.
+    /// </summary>
     private readonly ChannelReader<NetworkPacket> _incomingReader;
+
+    /// <summary>
+    /// Channel writer for outgoing messages.
+    /// </summary>
     private readonly ChannelWriter<OutgoingMessage> _outgoingWriter;
+
+    /// <summary>
+    /// The peer table for managing known peers.
+    /// </summary>
     private readonly PeerTable _peerTable;
+
+    /// <summary>
+    /// The routing table for managing network routes.
+    /// </summary>
     private readonly RoutingTable _routingTable;
 
+    /// <summary>
+    /// The blob store for storing and retrieving data blobs.
+    /// </summary>
     private readonly BlobStore _blobStore;
 
+    /// <summary>
+    /// The file ingestor for processing and ingesting files.
+    /// </summary>
+    private readonly FileIngestor _fileIngestor;
+
+    /// <summary>
+    /// The identity and onion keys for the node.
+    /// </summary>
     // Static algorithms to avoid reallocation overhead
     private static readonly SignatureAlgorithm _ed25519 = SignatureAlgorithm.Ed25519;
+
+    /// <summary>
+    /// The X25519 key agreement algorithm for onion routing.
+    /// </summary>
     private static readonly KeyAgreementAlgorithm _x25519 = KeyAgreementAlgorithm.X25519;
 
+    /// <summary>
+    /// The node's identity key used for signing and verification.
+    /// </summary>
     private readonly Key _myIdentityKey = Key.Create(_ed25519);
+
+    /// <summary>
+    /// The node's onion key used for onion routing.
+    /// </summary>
     private readonly Key _myOnionKey = Key.Create(_x25519);
 
+    /// <summary>
+    /// Logger for logging information and errors.
+    /// </summary>
     private readonly ILogger<NodeLogicWorker> _logger;
 
     public NodeLogicWorker(
@@ -39,6 +88,8 @@ public class NodeLogicWorker : BackgroundService
         Channel<OutgoingMessage> outgoingChannel,
         PeerTable peerTable,
         RoutingTable routingTable,
+        BlobStore blobStore,
+        FileIngestor fileIngestor,
         ILogger<NodeLogicWorker> logger
     )
     {
@@ -46,6 +97,8 @@ public class NodeLogicWorker : BackgroundService
         _outgoingWriter = outgoingChannel.Writer;
         _peerTable = peerTable;
         _routingTable = routingTable;
+        _blobStore = blobStore;
+        _fileIngestor = fileIngestor;
         _logger = logger;
     }
 
@@ -57,7 +110,8 @@ public class NodeLogicWorker : BackgroundService
         {
             try
             {
-                ProcessPacket(packet);
+                // Updated to await the processing, ensuring async operations complete
+                await ProcessPacket(packet);
             }
             catch (Exception ex)
             {
@@ -75,48 +129,77 @@ public class NodeLogicWorker : BackgroundService
     /// Processes an incoming network packet based on its message type.
     /// </summary>
     /// <param name="packet">The network packet to process.</param>
-    private void ProcessPacket(NetworkPacket packet)
+    private async Task ProcessPacket(NetworkPacket packet)
     {
         _logger.LogInformation(
             $"Processing packet of type {packet.MessageType} received from {packet.Origin}"
         );
 
-        // Discard result using '_' to satisfy compiler / analyzer
-        _ = packet.MessageType switch
+        switch (packet.MessageType)
         {
-            0x01 => this.HandleHandshake(packet),
-            0x02 => this.HandleOnionRoute(packet),
-            0x03 => this.HandleDhtLookup(packet),
-            _ => this.HandleUnknown(packet),
-        };
+            case 0x01:
+                HandleHandshake(packet);
+                break;
+            case 0x02:
+                HandleOnionRoute(packet);
+                break;
+            case 0x03:
+                HandleDhtLookup(packet);
+                break;
+            case 0x05:
+                await HandleStore(packet);
+                break;
+            case 0x07:
+                await HandleFetch(packet);
+                break;
+            default:
+                HandleUnknown(packet);
+                break;
+        }
     }
 
-    private async void HandleStore(NetworkPacket packet)
+    /// <summary>
+    /// Handles the storage of a network packet's payload by passing it to the blob store,
+    /// then responds to the origin with a confirmation and the resulting hash.
+    /// Optimizes memory usage by passing <see cref="ReadOnlyMemory{T}"/> directly to <c>StoreAsync</c>.
+    /// Logs the operation and handles any exceptions that occur during the process.
+    /// </summary>
+    /// <param name="packet">The <see cref="NetworkPacket"/> containing the payload to store and metadata for response.</param>
+    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+    private async Task HandleStore(NetworkPacket packet)
     {
         try
         {
             // 1. Extract data
-            byte[] dataToStore = packet.Payload.ToArray();
+            // Optimization: Pass ReadOnlyMemory directly to StoreAsync.
+            // Avoids .ToArray() allocation (copying the whole file to Heap).
+            byte[] hash = await _blobStore.StoreAsync(packet.Payload);
 
-            // 2. Persists data
-            byte[] hash = await _blobStore.StoreAsync(dataToStore);
+            // 2. Responds with "OK" and hash (STORE_RES - 0x06)
+            int responsePayloadSize = 32; // Hash size
+            int totalSize = FixedHeader.Size + responsePayloadSize;
 
-            // 3. Responds with "OK" and hash
-            int responseSize = 32;
-            byte[] responseBuffer = ArrayPool<byte>.Shared.Rent(FixedHeader.Size + responseSize);
+            byte[] responseBuffer = ArrayPool<byte>.Shared.Rent(totalSize);
 
-            new FixedHeader(0x06, packet.RequestId, (uint)responseSize).WriteToSpan(
+            // Write Header
+            new FixedHeader(0x06, packet.RequestId, (uint)responsePayloadSize).WriteToSpan(
                 responseBuffer.AsSpan(0, FixedHeader.Size)
             );
 
-            hash.CopyTo(responseBuffer.AsSpan(0, FixedHeader.Size));
+            // Write Payload (Hash)
+            hash.CopyTo(responseBuffer.AsSpan(FixedHeader.Size));
 
+            // 3. Send Response
             _outgoingWriter.TryWrite(
                 new OutgoingMessage(
                     packet.Origin,
-                    responseBuffer.AsMemory(0, FixedHeader.Size + responseSize),
+                    responseBuffer.AsMemory(0, totalSize),
                     responseBuffer
                 )
+            );
+
+            _logger.LogInformation(
+                $"Stored blob {Convert.ToHexString(hash)[..8]} from {packet.Origin}"
             );
         }
         catch (Exception ex)
@@ -125,43 +208,116 @@ public class NodeLogicWorker : BackgroundService
         }
     }
 
-    private async void HandleFetch(NetworkPacket packet)
+    /// <summary>
+    /// Handles a fetch request for a blob identified by its hash from the incoming <paramref name="packet"/>.
+    /// Validates the payload, checks for blob existence and size, and streams the blob data back to the requester.
+    /// If the blob is not found or is too large, logs a warning and does not send a response.
+    /// Optimizes memory usage by renting a buffer and writing blob data directly into it.
+    /// Ensures proper buffer management and error logging.
+    /// </summary>
+    /// <param name="packet">The network packet containing the fetch request and payload.</param>
+    /// <returns>A task representing the asynchronous operation.</returns>
+    private async Task HandleFetch(NetworkPacket packet)
     {
         try
         {
             if (packet.Payload.Length < 32)
                 return;
 
+            // 1. Get requested hash
             byte[] requestedHash = packet.Payload.Slice(0, 32).ToArray();
 
-            // 1. Try to retrieve data
-            byte[]? data = await _blobStore.RetrieveAsync(requestedHash);
+            // 2. Critical: Get only the size first
+            long? blobSize = _blobStore.GetBlobSize(requestedHash);
 
-            if (data == null)
+            if (blobSize == null)
             {
+                _logger.LogWarning(
+                    $"FETCH: Blob not found {Convert.ToHexString(requestedHash)[..8]}"
+                );
                 // TODO: Send NOT_FOUND (0x404?)
                 return;
             }
 
-            // 2. Send data
-            // Header (0x08 = FETCH_RES)
-            int totalSize = FixedHeader.Size + data.Length;
+            // If the blob is too large, we should implement a streaming mechanism
+            // TODO: Handle large blobs (streaming)
+            if (blobSize > 10 * 1024 * 1024)
+            {
+                _logger.LogWarning($"FETCH: Blob too large for single packet.");
+                return;
+            }
+
+            int dataLen = (int)blobSize.Value;
+            int totalSize = FixedHeader.Size + dataLen;
+
+            // 3. Rent buffer for response
             byte[] packetBuffer = ArrayPool<byte>.Shared.Rent(totalSize);
 
-            data.CopyTo(packetBuffer.AsSpan(FixedHeader.Size));
+            try
+            {
+                // 4. Write Header
+                new FixedHeader(0x08, packet.RequestId, (uint)dataLen).WriteToSpan(
+                    packetBuffer.AsSpan(0, FixedHeader.Size)
+                );
 
-            _outgoingWriter.TryWrite(
-                new OutgoingMessage(
-                    packet.Origin,
-                    packetBuffer.AsMemory(0, totalSize),
-                    packetBuffer
-                )
-            );
+                // 5. Retrieve blob data directly into the response buffer
+                // Optimization: Avoids extra allocation by writing directly to the rented buffer
+                Memory<byte> dataWindow = packetBuffer.AsMemory(FixedHeader.Size, dataLen);
+
+                // Retrieve the blob data into the allocated window
+                int bytesRead = await _blobStore.RetrieveToBufferAsync(requestedHash, dataWindow);
+
+                if (bytesRead != dataLen)
+                {
+                    _logger.LogError(
+                        $"FETCH: Expected {dataLen} bytes but read {bytesRead} bytes."
+                    );
+                    return;
+                }
+
+                // 6. Send Response
+                _outgoingWriter.TryWrite(
+                    new OutgoingMessage(
+                        packet.Origin,
+                        packetBuffer.AsMemory(0, totalSize),
+                        packetBuffer
+                    )
+                );
+            }
+            catch
+            {
+                // In case of error, ensure we return the rented buffer
+                // In case of success, the ConnectionManager will return it after sending
+                ArrayPool<byte>.Shared.Return(packetBuffer);
+                throw;
+            }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Fetch failed.");
         }
+    }
+
+    /// <summary>
+    /// Publishes a message by ingesting the provided text content as a file,
+    /// chunking and storing it locally, and returning the generated message identifier.
+    /// </summary>
+    /// <param name="textContent">The text content to be published.</param>
+    /// <returns>
+    /// A <see cref="Task{String}"/> representing the asynchronous operation,
+    /// with the message identifier (hash) as the result.
+    /// </returns>
+    public async Task<string> PublishMessageAsync(string textContent)
+    {
+        // 1. Convert text to stream
+        using MemoryStream stream = new MemoryStream(Encoding.UTF8.GetBytes(textContent));
+
+        // 2. Ingest the file (this will create chunks + 1 manifest)
+        // The ingestor handles chunking and storage locally
+        string messageId = await _fileIngestor.IngestAsync(stream, "post.txt", "text/plain");
+
+        // This is the hash propagated in the DHT
+        return messageId;
     }
 
     /// <summary>
@@ -259,6 +415,17 @@ public class NodeLogicWorker : BackgroundService
         return new OutgoingMessage(target, packetBuffer.AsMemory(0, totalSize), packetBuffer);
     }
 
+    /// <summary>
+    /// Handles an incoming DHT FindNode request packet.
+    /// Validates the packet, updates the routing table with the origin contact,
+    /// finds the closest nodes to the requested target ID, builds a response,
+    /// and sends it back to the requester.
+    /// </summary>
+    /// <param name="packet">The incoming network packet containing the FindNode request.</param>
+    /// <returns>
+    /// <c>true</c> if the request was handled and a response was sent;
+    /// <c>false</c> if the packet was invalid or could not be processed.
+    /// </returns>
     private bool HandleDhtLookup(NetworkPacket packet)
     {
         if (packet.Payload.Length < 32)
@@ -270,7 +437,7 @@ public class NodeLogicWorker : BackgroundService
 
         if (_peerTable.TryGetPeerKey(packet.Origin, out var originKey))
         {
-            // Example of deriving NodeId from peer's onion key
+            // Example of deriving NodeId from peer's onion key (in real app, use Hash)
             var originNodeId = new NodeId(SHA256.HashData(originKey));
             _routingTable.AddContact(new Contact(originNodeId, packet.Origin));
         }
@@ -304,6 +471,16 @@ public class NodeLogicWorker : BackgroundService
         return true;
     }
 
+    /// <summary>
+    /// Handles the decryption and processing of an onion route packet.
+    /// Extracts the sender's ephemeral public key and the encrypted onion layer from the packet payload.
+    /// Performs key agreement to derive a session key, then attempts to decrypt the onion layer.
+    /// If decryption is successful, processes the peeled layer; otherwise, logs a warning.
+    /// </summary>
+    /// <param name="packet">The <see cref="NetworkPacket"/> containing the onion route payload.</param>
+    /// <returns>
+    /// <c>true</c> if the onion layer was successfully decrypted and processed; <c>false</c> otherwise.
+    /// </returns>
     private bool HandleOnionRoute(NetworkPacket packet)
     {
         var payloadSpan = packet.Payload.Span;
@@ -326,8 +503,8 @@ public class NodeLogicWorker : BackgroundService
             );
             using Key sessionKey = CryptoHelper.CreateSessionKey(_myOnionKey, senderPublicKey);
 
-            // The encryptedOnionLayer donst have não tem a chave de 32 bytes.
-            // Then we subtract only the overhead (28 bytes) FROM IT, not from the total payload.
+            // The encryptedOnionLayer does not have the 32-byte key.
+            // So we subtract only the overhead (28 bytes) FROM IT.
             int plainTextSize = encryptedOnionLayer.Length - 28;
 
             if (plainTextSize <= 0)
@@ -340,7 +517,7 @@ public class NodeLogicWorker : BackgroundService
                 if (
                     CryptoHelper.TryDecryptLayer(
                         sessionKey,
-                        encryptedOnionLayer, // Usamos o slice correto
+                        encryptedOnionLayer, // Use correct slice
                         peeledLayer.AsSpan(0, plainTextSize)
                     )
                 )
@@ -366,6 +543,15 @@ public class NodeLogicWorker : BackgroundService
         }
     }
 
+    /// <summary>
+    /// Processes a peeled layer of an onion-routed message. Determines whether the message is intended for the final destination
+    /// or should be relayed to the next hop. If the message is for the final destination, logs the message length and provides a
+    /// placeholder for further processing. If the message is to be relayed, extracts the next hop's IP address and port, constructs
+    /// the appropriate header, and prepares the outgoing message for transmission.
+    /// </summary>
+    /// <param name="data">
+    /// The span of bytes representing the peeled onion layer, including the command byte, address information, and payload.
+    /// </param>
     private void ProcessPeeledLayer(Span<byte> data)
     {
         byte command = data[0];
@@ -385,7 +571,8 @@ public class NodeLogicWorker : BackgroundService
             Span<byte> ipBytes = data.Slice(2, ipLen);
             ushort port = BinaryPrimitives.ReadUInt16BigEndian(data.Slice(2 + ipLen, 2));
 
-            IPAddress nextHopIp = new IPAddress(ipBytes);
+            // CORRECTION: Ensure we use an array for IPAddress constructor compatibility
+            IPAddress nextHopIp = new IPAddress(ipBytes.ToArray());
             IPEndPoint nextHopEndpoint = new IPEndPoint(nextHopIp, port);
 
             Span<byte> nextPayload = data.Slice(2 + ipLen + 2);

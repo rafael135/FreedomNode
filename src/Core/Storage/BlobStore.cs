@@ -10,9 +10,6 @@ namespace FalconNode.Core.Storage;
 /// The storage directory is initialized under the application's base directory at "data/blobs".
 /// All operations are logged using the provided <see cref="ILogger{BlobStore}"/>.
 /// </remarks>
-/// <summary>
-/// Provides storage and retrieval operations for binary large objects (blobs).
-/// </summary>
 public class BlobStore
 {
     private readonly string _storagePath;
@@ -26,47 +23,101 @@ public class BlobStore
     }
 
     /// <summary>
-    /// Stores the given binary data as a blob in the storage directory.
+    /// Stores the given binary data as a blob in the storage directory using efficient memory handling.
     /// The blob is identified by its SHA-256 hash, which is used as the filename.
     /// If a blob with the same hash already exists, the method skips storage.
     /// The write operation is performed atomically using a temporary file to prevent incomplete writes.
     /// </summary>
-    /// <param name="data">The binary data to store.</param>
+    /// <param name="data">The binary data to store (as a read-only memory region).</param>
     /// <returns>
     /// A <see cref="Task{TResult}"/> representing the asynchronous operation,
     /// with the SHA-256 hash of the stored data as a byte array.
     /// </returns>
-    public async Task<byte[]> StoreAsync(byte[] data)
+    public async Task<byte[]> StoreAsync(ReadOnlyMemory<byte> data)
     {
-        // 1. Calculate Hash (content id)
-        byte[] hash = SHA256.HashData(data);
-        string hashString = Convert.ToHexString(hash).ToLowerInvariant();
+        // 1. Calculate Hash (content id) without heap allocation
+        // stackalloc creates a buffer on the stack (zero GC cost)
+        Span<byte> hashSpan = stackalloc byte[32];
+        SHA256.HashData(data.Span, hashSpan);
+
+        string hashString = Convert.ToHexString(hashSpan).ToLowerInvariant();
         string filePath = Path.Combine(_storagePath, hashString);
+
+        // We need to return the hash as an array for the caller (Manifest ID)
+        byte[] hashResult = hashSpan.ToArray();
 
         // 2. If already exists, dont do anything
         if (File.Exists(filePath))
         {
-            _logger.LogInformation(
-                "Blob with hash {Hash} already exists. Skipping storage.",
-                hashString
-            );
-            return hash;
+            // _logger.LogInformation("Blob with hash {Hash} already exists. Skipping storage.", hashString);
+            return hashResult;
         }
 
         // 3. Save to disk (Atomic, if possible)
         // The .tmp suffix ensures that incomplete writes are not mistaken for complete files if the node crashes during write.
         string tempPath = filePath + ".tmp";
-        await File.WriteAllBytesAsync(tempPath, data);
-        File.Move(tempPath, filePath);
 
-        _logger.LogInformation(
-            $"Stored blob with hash {hashString} at {filePath}, with size {data.Length} bytes."
+        // Use FileStream directly with ReadOnlyMemory to avoid array copying
+        await using (
+            var fs = new FileStream(
+                tempPath,
+                FileMode.Create,
+                FileAccess.Write,
+                FileShare.None,
+                bufferSize: 4096,
+                useAsync: true
+            )
+        )
+        {
+            await fs.WriteAsync(data);
+        }
+
+        try
+        {
+            File.Move(tempPath, filePath, overwrite: true);
+            _logger.LogInformation(
+                $"Stored blob with hash {hashString} at {filePath}, with size {data.Length} bytes."
+            );
+        }
+        catch (IOException)
+        {
+            // Race condition: Someone stored the same blob milliseconds ago. Ignore.
+        }
+
+        return hashResult;
+    }
+
+    /// <summary>
+    /// Asynchronously retrieves the blob data associated with the specified hash and copies it directly to a target stream.
+    /// This is memory efficient for large files as it avoids loading the entire blob into RAM.
+    /// </summary>
+    /// <param name="hash">The hash of the blob to retrieve.</param>
+    /// <param name="targetStream">The stream to write the blob data to.</param>
+    /// <returns>True if found and copied; otherwise false.</returns>
+    public async Task<bool> RetrieveToStreamAsync(byte[] hash, Stream targetStream)
+    {
+        string hashString = Convert.ToHexString(hash).ToLowerInvariant();
+        string filePath = Path.Combine(_storagePath, hashString);
+
+        if (!File.Exists(filePath))
+            return false;
+
+        await using var fs = new FileStream(
+            filePath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            bufferSize: 4096,
+            useAsync: true
         );
-        return hash;
+        await fs.CopyToAsync(targetStream);
+
+        return true;
     }
 
     /// <summary>
     /// Asynchronously retrieves the blob data associated with the specified hash.
+    /// Use this only for small blobs (like Manifests) to avoid high memory usage.
     /// </summary>
     /// <param name="hash">The hash of the blob to retrieve.</param>
     /// <returns>
@@ -75,7 +126,7 @@ public class BlobStore
     /// <remarks>
     /// Logs a warning if the blob is not found, and logs information upon successful retrieval.
     /// </remarks>
-    public async Task<byte[]?> RetrieveAsync(byte[] hash)
+    public async Task<byte[]?> RetrieveBytesAsync(byte[] hash)
     {
         string hashString = Convert.ToHexString(hash).ToLowerInvariant();
         string filePath = Path.Combine(_storagePath, hashString);
@@ -104,5 +155,51 @@ public class BlobStore
     {
         string hashString = Convert.ToHexString(hash).ToLowerInvariant();
         return File.Exists(Path.Combine(_storagePath, hashString));
+    }
+
+    /// <summary>
+    /// Gets the size of the blob associated with the specified hash.
+    /// </summary>
+    /// <param name="hash">The hash of the blob as a byte array.</param>
+    /// <returns></returns>
+    public long? GetBlobSize(byte[] hash)
+    {
+        string hashString = Convert.ToHexString(hash).ToLowerInvariant();
+        string filePath = Path.Combine(_storagePath, hashString);
+
+        FileInfo info = new FileInfo(filePath);
+        return info.Exists ? info.Length : null;
+    }
+
+    /// <summary>
+    /// Asynchronously retrieves the blob data associated with the specified hash
+    /// and writes it directly into the provided memory buffer.
+    /// </summary>
+    /// <param name="hash">The hash of the blob as a byte array.</param>
+    /// <param name="destination">The memory buffer to write the blob data into.</param>
+    /// <returns>The number of bytes read into the buffer.</returns>
+    public async Task<int> RetrieveToBufferAsync(byte[] hash, Memory<byte> destination)
+    {
+        string hashString = Convert.ToHexString(hash).ToLowerInvariant();
+        string filePath = Path.Combine(_storagePath, hashString);
+
+        if (!File.Exists(filePath))
+        {
+            return 0;
+        }
+
+        await using FileStream fs = new FileStream(
+            filePath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            bufferSize: 4096,
+            useAsync: true
+        );
+
+        // Reads directly into the provided Memory<byte> destination
+        int bytesRead = await fs.ReadAsync(destination);
+
+        return bytesRead;
     }
 }
