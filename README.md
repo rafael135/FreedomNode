@@ -64,6 +64,23 @@ dotnet run --project FalconNode.csproj
 
 - Debug: abrir a solução no Visual Studio / VS Code. `Properties/launchSettings.json` contém configurações de depuração e perfis.
 
+## Debug mode & Terminal UI (interactive)
+
+- Program supports runtime flags: `--port <port>`, `--seed <seedPort>` and `--debug`.
+- In debug mode the application registers a small interactive `TerminalUi` (see `src/UI/TerminalUI.cs`). The UI uses the same `NodeLogicWorker` singleton to send handshakes, publish files and craft ad-hoc packets for testing.
+- Example (PowerShell):
+
+```powershell
+dotnet run -- --debug --port 5001 --seed 5000
+```
+
+- Interactive `TerminalUi` commands:
+  - connect <port> — send a handshake to loopback:<port>
+  - upload <text> — create a small file, ingest + upload via `FileIngestor`, returns manifest hash
+  - fetch <manifestHash> — reassemble manifest via `FileRetriever` and display content
+  - send-store <port> <text> — craft a STORE request (0x05) and send to a remote port (useful for manual protocol experiments)
+
+
 ## Observabilidade & padrões de performance
 
 - Uso intensivo de `ArrayPool<byte>` para reduzir pressão do GC — ao modificar código, preserve o contrato de ownership e retorno dos buffers.
@@ -88,10 +105,17 @@ File ingestion and publishing
 
 ### Considerações sobre armazenamento de mídia (mensagens, imagens, vídeo)
 
-- O `BlobStore` atual é um armazenamento local por conteúdo (content-addressed) ideal para ficheiros de qualquer tipo, mas este MVP não inclui replicação, deduplicação em rede ou políticas de quota.
-- Limites do MVP:
-  - O listener simulado atualmente impõe um limite de payload de 5MB no `QuicListenerWorker` (veja `QuicListenerWorker.cs`). Para suportar vídeos e grandes imagens, será necessário um plano de chunking/streaming ou remoção desse limite.
-  - O armazenamento atual grava blobs inteiros em disco; ficheiros muito grandes sugerem adotar chunking + manifestos (ex: dividir em blocos SHA-256 e armazenar um índice/manifest que referencia os blocos).
+- O projeto agora suporta ingestão por chunks via `FileIngestor` (src/Core/FS/FileIngestor.cs): arquivos são lidos em pedaços fixos (256 KiB), cada pedaço é armazenado como um blob independente e um manifesto JSON é escrito contendo a lista ordenada de hashes dos blocos.
+- `FileRetriever` (src/Core/FS/FileRetriever.cs) reconstitui arquivos a partir do manifesto, usando `BlobStore.RetrieveToStreamAsync` para escrever cada chunk diretamente em um Stream (sem alocar buffers desnecessários).
+
+Limites & comportamento atual:
+- O `QuicListenerWorker` ainda tem um limite de payload por pacote (ver `QuicListenerWorker.cs`); para arquivos grandes o fluxo de FileIngestor + manifests/Fetch é a abordagem recomendada.
+- O `BlobStore` não precisa mais receber arquivos inteiros quando trabalhar com arquivos grandes — o padrão atual é armazenar chunks + um pequeno manifesto. Isso reduz uso de memória e permite streaming de volta ao cliente.
+
+Práticas recomendadas para produção / port para Rust (continua relevante):
+1. Manter chunking + streaming para arquivos grandes e validar cross-language compatibilidade com manifests.
+2. Implementar descoberta/recuperação de chunks ausentes via DHT/network (o reassembler atual lê apenas do armazenamento local).
+3. Adicionar retenção, quotas, e políticas de replicação/peering para disponibilidade.
 
 - Recomendações práticas para produção / port para Rust:
   1. Introduzir chunking transparente para blobs grandes: divida arquivos > N MB em blocos de tamanho fixo (ex. 1–4 MB) e nomeie cada bloco por SHA-256.
