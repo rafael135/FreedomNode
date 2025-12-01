@@ -3,6 +3,8 @@ using System.Net;
 using System.Threading.Channels;
 using Microsoft.Extensions.Logging.Abstractions;
 using FalconNode.Core.Dht;
+using FalconNode.Core.Storage;
+using FalconNode.Core.FS;
 using FalconNode.Core.Messages;
 using FalconNode.Core.State;
 using FalconNode.Core.Network;
@@ -20,11 +22,13 @@ public class NodeLogicWorkerTests
         var outChannel = Channel.CreateBounded<OutgoingMessage>(new BoundedChannelOptions(10) { SingleReader = false, SingleWriter = false, FullMode = BoundedChannelFullMode.Wait });
 
         var peerTable = new PeerTable();
-        var nodeSettings = new NodeSettings(NodeId.Random());
+        var nodeSettings = new NodeSettings(NodeId.Random(), 40000);
+        var blobStore = new BlobStore(new NullLogger<BlobStore>());
+        var fileIngestor = new FileIngestor(blobStore);
         var routingTable = new RoutingTable(nodeSettings);
         var logger = new NullLogger<NodeLogicWorker>();
 
-        var worker = new NodeLogicWorker(inChannel, outChannel, peerTable, routingTable, logger);
+        var worker = new NodeLogicWorker(inChannel, outChannel, peerTable, routingTable, blobStore, fileIngestor, logger);
 
         using var cts = new CancellationTokenSource();
 
@@ -77,7 +81,9 @@ public class NodeLogicWorkerTests
         var outChannel = Channel.CreateBounded<OutgoingMessage>(new BoundedChannelOptions(10) { SingleReader = false, SingleWriter = false, FullMode = BoundedChannelFullMode.Wait });
 
         var peerTable = new PeerTable();
-        var nodeSettings = new NodeSettings(NodeId.Random());
+        var nodeSettings = new NodeSettings(NodeId.Random(), 40001);
+        var blobStore = new BlobStore(new NullLogger<BlobStore>());
+        var fileIngestor = new FileIngestor(blobStore);
         var routingTable = new RoutingTable(nodeSettings);
         var logger = new NullLogger<NodeLogicWorker>();
 
@@ -86,7 +92,7 @@ public class NodeLogicWorkerTests
         var contactEp = new IPEndPoint(IPAddress.Loopback, 12345);
         routingTable.AddContact(new Contact(contactId, contactEp));
 
-        var worker = new NodeLogicWorker(inChannel, outChannel, peerTable, routingTable, logger);
+        var worker = new NodeLogicWorker(inChannel, outChannel, peerTable, routingTable, blobStore, fileIngestor, logger);
 
         using var cts = new CancellationTokenSource();
         await worker.StartAsync(cts.Token);

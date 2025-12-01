@@ -33,7 +33,7 @@ public class BlobStoreTests : IDisposable
         string filename = Path.Combine(_baseDir, Convert.ToHexString(hash).ToLowerInvariant());
         Assert.True(File.Exists(filename));
 
-        var retrieved = await _store.RetrieveAsync(hash);
+            var retrieved = await _store.RetrieveBytesAsync(hash);
         Assert.NotNull(retrieved);
         Assert.Equal(data, retrieved);
     }
