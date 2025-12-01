@@ -149,6 +149,10 @@ public class NodeLogicWorker : BackgroundService
             case 0x05:
                 await HandleStore(packet);
                 break;
+            case 0x09:
+                // 0x09 (Ping) handler removed — example moved to CONTRIBUTING.md as documentation-only
+                // To implement: add a handler like the repository examples (FixedHeader, ArrayPool, OutgoingMessage)
+                break;
             case 0x07:
                 await HandleFetch(packet);
                 break;
@@ -608,4 +612,6 @@ public class NodeLogicWorker : BackgroundService
         _logger.LogWarning($"Received unknown packet type: {packet.MessageType}");
         return true;
     }
+
+    // Ping handler removed — see CONTRIBUTING.md for a full commented example to add this behavior.
 }

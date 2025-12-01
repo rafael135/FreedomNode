@@ -80,6 +80,35 @@ UI / Debug mode note:
 2. Atualize `NodeLogicWorker` switch/handler para a nova message type.
 3. Adicione testes que construam buffers com `FixedHeader` + payload e assertem o comportamento.
 
+Exemplo (documentado) — Ping/Pong (exemplo mínimo, *docs-only*):
+
+```csharp
+// src/Core/Messages/PingPayload.cs (example)
+// public readonly struct PingPayload { public const int Size = 4; public readonly uint Value; /* ReadFromSpan/WriteToSpan */ }
+
+// src/Core/Messages/PongPayload.cs (example)
+// public readonly struct PongPayload { public const int Size = 4; public readonly uint Value; /* ReadFromSpan/WriteToSpan */ }
+
+// NodeLogicWorker.cs (example handler code)
+// case 0x09: // PING -> await HandlePing(packet); break;
+// private async Task HandlePing(NetworkPacket packet) {
+//   if (packet.Payload.Length < PingPayload.Size) return;
+//   var ping = PingPayload.ReadFromSpan(packet.Payload.Span);
+//   var pong = new PongPayload(ping.Value);
+//   int total = FixedHeader.Size + PongPayload.Size; var buf = ArrayPool<byte>.Shared.Rent(total);
+//   new FixedHeader(0x0A, packet.RequestId, (uint)PongPayload.Size).WriteToSpan(buf.AsSpan(0, FixedHeader.Size));
+//   pong.WriteToSpan(buf.AsSpan(FixedHeader.Size));
+//   _outgoingWriter.TryWrite(new OutgoingMessage(packet.Origin, buf.AsMemory(0, total), buf));
+// }
+
+// Test (example)
+// - Rent buffer with FixedHeader.Size + PingPayload.Size
+// - Write header (0x09) + payload
+// - Produce NetworkPacket into inChannel and assert an outgoing 0x0A response whose payload matches the ping value
+
+// Note: this example is intentionally documented here — do not add runtime code/tests unless the change is desired.
+```
+
 ## Problemas conhecidos / dicas práticas
 
 - QUIC: runtime nativo pode ser necessário para testes e integração com QUIC. Em dev, `ConnectionManagerWorker` aceita certificados sem validação (dev-only) via `RemoteCertificateValidationCallback`.
