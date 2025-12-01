@@ -84,29 +84,75 @@ Exemplo (documentado) — Ping/Pong (exemplo mínimo, *docs-only*):
 
 ```csharp
 // src/Core/Messages/PingPayload.cs (example)
-// public readonly struct PingPayload { public const int Size = 4; public readonly uint Value; /* ReadFromSpan/WriteToSpan */ }
+public readonly struct PingPayload
+{
+  public const int Size = 4; // 4 bytes (uint)
+  public readonly uint Value;
+
+  public PingPayload(uint value) => Value = value;
+
+  public static PingPayload ReadFromSpan(ReadOnlySpan<byte> src) =>
+    new PingPayload(BinaryPrimitives.ReadUInt32BigEndian(src));
+
+  public void WriteToSpan(Span<byte> dst) =>
+    BinaryPrimitives.WriteUInt32BigEndian(dst, Value);
+}
 
 // src/Core/Messages/PongPayload.cs (example)
-// public readonly struct PongPayload { public const int Size = 4; public readonly uint Value; /* ReadFromSpan/WriteToSpan */ }
+public readonly struct PongPayload
+{
+  public const int Size = 4; // 4 bytes (uint)
+  public readonly uint Value;
 
-// NodeLogicWorker.cs (example handler code)
-// case 0x09: // PING -> await HandlePing(packet); break;
-// private async Task HandlePing(NetworkPacket packet) {
-//   if (packet.Payload.Length < PingPayload.Size) return;
-//   var ping = PingPayload.ReadFromSpan(packet.Payload.Span);
-//   var pong = new PongPayload(ping.Value);
-//   int total = FixedHeader.Size + PongPayload.Size; var buf = ArrayPool<byte>.Shared.Rent(total);
-//   new FixedHeader(0x0A, packet.RequestId, (uint)PongPayload.Size).WriteToSpan(buf.AsSpan(0, FixedHeader.Size));
-//   pong.WriteToSpan(buf.AsSpan(FixedHeader.Size));
-//   _outgoingWriter.TryWrite(new OutgoingMessage(packet.Origin, buf.AsMemory(0, total), buf));
-// }
+  public PongPayload(uint value) => Value = value;
+
+  public static PongPayload ReadFromSpan(ReadOnlySpan<byte> src) =>
+    new PongPayload(BinaryPrimitives.ReadUInt32BigEndian(src));
+
+  public void WriteToSpan(Span<byte> dst) =>
+    BinaryPrimitives.WriteUInt32BigEndian(dst, Value);
+}
+
+// NodeLogicWorker.cs (example handler code — simplified)
+// Add this to your message switch: case 0x09: await HandlePing(packet); break;
+private async Task HandlePing(NetworkPacket packet)
+{
+  if (packet.Payload.Length < PingPayload.Size)
+    return; // invalid payload
+
+  var ping = PingPayload.ReadFromSpan(packet.Payload.Span);
+
+  // build pong response
+  var pong = new PongPayload(ping.Value);
+  int responseSize = FixedHeader.Size + PongPayload.Size;
+  byte[] buffer = ArrayPool<byte>.Shared.Rent(responseSize);
+
+  try
+  {
+    // header: 0x0A = PONG
+    new FixedHeader(0x0A, packet.RequestId, (uint)PongPayload.Size)
+      .WriteToSpan(buffer.AsSpan(0, FixedHeader.Size));
+
+    // payload
+    pong.WriteToSpan(buffer.AsSpan(FixedHeader.Size));
+
+    _outgoingWriter.TryWrite(new OutgoingMessage(packet.Origin, buffer.AsMemory(0, responseSize), buffer));
+  }
+  catch
+  {
+    // On error, return buffer immediately
+    ArrayPool<byte>.Shared.Return(buffer);
+    throw;
+  }
+}
 
 // Test (example)
 // - Rent buffer with FixedHeader.Size + PingPayload.Size
-// - Write header (0x09) + payload
-// - Produce NetworkPacket into inChannel and assert an outgoing 0x0A response whose payload matches the ping value
+// - Write FixedHeader (0x09, request id) + Ping payload (4 bytes)
+// - Create NetworkPacket and write to inChannel
+// - Assert outgoing message has header 0x0A and payload matching the original ping value
 
-// Note: this example is intentionally documented here — do not add runtime code/tests unless the change is desired.
+// Note: this example is intentionally documented here — keep it docs-only unless you want the change to be live.
 ```
 
 ## Problemas conhecidos / dicas práticas
