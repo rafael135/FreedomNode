@@ -159,8 +159,6 @@ Helpful references
 
 ---
 
-If you'd like, I can open a PR that adds ISSUE / PULL_REQUEST templates and a CI job to run tests on every PR.
-
 Quick notes on adding new features here:
 
 - To add a new worker: create a `BackgroundService` under `src/Workers/` and register it in `Program.cs`.
