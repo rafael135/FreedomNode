@@ -1,36 +1,38 @@
 # FreedomNode
 
-FreedomNode é um MVP (prova de conceito) em C#/.NET para redes descentralizadas. O objetivo primário é prototipar modelos de protocolo (DHT, onion-routing, handshakes) e validar formatos binários e fluxos antes de implementar uma versão de produção em Rust.
+[English](./README.md) • [Português (pt-BR)](./README.pt.md)
 
-### Objetivo do projeto
+FreedomNode is a C#/.NET MVP (proof of concept) for decentralized networks. The primary goal is to prototype protocol building blocks (DHT, onion routing, authenticated handshakes) and validate binary message formats and flows before implementing a production-grade version in Rust.
 
-Este nó é pensado para ser a base de infraestrutura de uma rede social descentralizada: cada instância (nó) atua como host/armazenamento para conteúdos do tipo mensagens, imagens, vídeos e outros ficheiros enviados pelos usuários. O MVP concentra-se em provar os blocos técnicos essenciais — identidade, handshakes autenticados, roteamento DHT e armazenamento content-addressed via SHA-256 — antes de migrar para uma implementação de alta performance em Rust.
+## Project goal
 
-## Visão Geral
+This node is intended to serve as the infrastructure foundation for a decentralized social network. Each instance (node) can host and store user content such as messages, images, videos and other files. The MVP focuses on proving the essential technical building blocks—identity, authenticated handshakes, DHT routing, and content-addressed storage using SHA-256—before a high-performance Rust implementation.
 
-- **Core:** Lógica principal do protocolo, incluindo criptografia, DHT, mensagens, rede e gerenciamento de estado.
-- **Storage:** Persistência de dados e manipulação de mensagens de armazenamento.
-- **Workers:** Workers para tarefas de longa duração, como gerenciamento de conexões, lógica de nó e escuta QUIC.
-- **Program.cs:** Ponto de entrada da aplicação, responsável por inicializar serviços e workers.
+## Overview
 
-## Arquitetura & fluxo de dados
+- Core: protocol logic including crypto primitives, DHT, messages, networking and state management.
+- Storage: persistence helpers and storage-related message handling.
+- Workers: background services for long-running tasks like connection management, node logic and QUIC listening.
+- Program.cs: application entrypoint — registers services and workers and wires the in/out channels used by the workers.
 
-1. Startup inicializa `NodeSettings` (NodeId aleatório + configured ports) e registra singletons: `PeerTable`, `RoutingTable`, `BlobStore`, `FileIngestor`.
-2. Dois canais bounded (entrada e saída) atravessam os workers: `Channel<NetworkPacket>` (entrada) e `Channel<OutgoingMessage>` (saída).
-3. `QuicListenerWorker` aceita conexões/streams QUIC, lê um `FixedHeader` + payload, e publica `NetworkPacket` no canal de entrada.
-4. `NodeLogicWorker` consome `NetworkPacket`s, aplica processamento (handshake, onion peeling, DHT, store/fetch) e escreve respostas/encaminhamentos no canal de saída.
-5. `ConnectionManagerWorker` mantém conexões QUIC ativas e envia `OutgoingMessage`s para peers.
+## Architecture & data flow
 
-## Formato da mensagem (importante)
+1. Startup initializes `NodeSettings` (random NodeId + configured ports) and registers singletons: `PeerTable`, `RoutingTable`, `BlobStore`, `FileIngestor`.
+2. Two bounded channels connect workers: `Channel<NetworkPacket>` (incoming) and `Channel<OutgoingMessage>` (outgoing).
+3. `QuicListenerWorker` accepts QUIC connections/streams, reads `FixedHeader` + payload, and publishes a `NetworkPacket` to the incoming channel.
+4. `NodeLogicWorker` consumes `NetworkPacket`s and performs packet handling (handshake, onion peeling, DHT operations, STORE/FETCH), writing responses and forwarded messages to the outgoing channel.
+5. `ConnectionManagerWorker` maintains active QUIC connections and sends `OutgoingMessage`s to peers.
 
-- FixedHeader — 16 bytes (big-endian onde aplicável):
+## Message format (important)
+
+- FixedHeader — 16 bytes (big-endian where applicable):
   - Version (1 byte)
   - Flags (1 byte)
   - MessageType (1 byte) — examples used by NodeLogicWorker:
     - 0x01 = Handshake
     - 0x02 = Onion
-    - 0x03 = DHT find node (request)
-    - 0x04 = FindNode response
+    - 0x03 = DHT FindNode (request)
+    - 0x04 = DHT FindNode (response)
     - 0x05 = STORE (store request)
     - 0x06 = STORE_RES (store result / response)
     - 0x07 = FETCH (fetch request)
@@ -40,136 +42,128 @@ Este nó é pensado para ser a base de infraestrutura de uma rede social descent
   - PayloadLength (4 bytes)
   - Checksum (CRC32, 4 bytes)
 
-- HandshakePayload — 136 bytes: 32 (identity key) + 32 (onion key) + 8 (timestamp) + 64 (ed25519 signature). Use `HandshakePayload.WriteSignableBytes` ao construir os bytes a serem assinados.
+- HandshakePayload — 136 bytes: 32 (identity key) + 32 (onion key) + 8 (timestamp) + 64 (ed25519 signature). Use `HandshakePayload.WriteSignableBytes` to build the bytes that are signed.
 
-## Criptografia & formatos
+## Cryptography & primitives
 
-- Assinaturas: ed25519 (NSec)
-- Key agreement: x25519 (ECDH)
+- Signatures: ed25519 (NSec)
+- Key agreement: X25519 (ECDH)
 - KDF: HKDF-SHA256
-- AEAD: ChaCha20-Poly1305 (layers de onion)
+- AEAD: ChaCha20-Poly1305 (onion layers)
 
-## Como executar (dev)
+## How to run (development)
 
-- Build (requer .NET 10 SDK):
+- Build (requires .NET 10 SDK):
 
-```powershell
+```bash
 dotnet build FalconNode.sln
 ```
 
-- Run (a aplicação inicializa os workers):
+- Run (the app will start the workers):
 
-```powershell
+```bash
 dotnet run --project FalconNode.csproj
 ```
 
-- Debug: abrir a solução no Visual Studio / VS Code. `Properties/launchSettings.json` contém configurações de depuração e perfis.
+- Debug: open the solution in Visual Studio or VS Code. `Properties/launchSettings.json` contains run/debug profiles.
 
 ## Debug mode & Terminal UI (interactive)
 
 - Program supports runtime flags: `--port <port>`, `--seed <seedPort>` and `--debug`.
-- In debug mode the application registers a small interactive `TerminalUi` (see `src/UI/TerminalUI.cs`). The UI uses the same `NodeLogicWorker` singleton to send handshakes, publish files and craft ad-hoc packets for testing.
-- Example (PowerShell):
+- In debug mode the application registers a small interactive `TerminalUi` (see `src/UI/TerminalUI.cs`) that uses the same `NodeLogicWorker` singleton to craft handshakes, publish files and create ad-hoc packets for manual testing.
 
-```powershell
+Example:
+
+```bash
 dotnet run -- --debug --port 5001 --seed 5000
 ```
 
-- Interactive `TerminalUi` commands:
-  - connect <port> — send a handshake to loopback:<port>
-  - upload <text> — create a small file, ingest + upload via `FileIngestor`, returns manifest hash
-  - fetch <manifestHash> — reassemble manifest via `FileRetriever` and display content
-  - send-store <port> <text> — craft a STORE request (0x05) and send to a remote port (useful for manual protocol experiments)
+Interactive `TerminalUi` commands:
+- connect <port> — send a handshake to loopback:<port>
+- upload <text> — create a small file, ingest + upload via `FileIngestor`, returns manifest hash
+- fetch <manifestHash> — reassemble manifest via `FileRetriever` and display content
+- send-store <port> <text> — craft a STORE request (0x05) and send to a remote port (useful for manual protocol experiments)
 
-## Observabilidade & padrões de performance
+## Observability & performance patterns
 
-- Uso intensivo de `ArrayPool<byte>` para reduzir pressão do GC — ao modificar código, preserve o contrato de ownership e retorno dos buffers.
-- Logging via `ILogger<T>`; NodeLogicWorker registra eventos-chave (handshake, DHT ops, onion processing).
-- Canais são bounded (2000) e configurados com comportamento `Wait` no modo cheio.
+- Heavy use of `ArrayPool<byte>` reduces GC pressure — preserve buffer ownership and ensure rented buffers are returned in finally blocks.
+- Logging is performed via `ILogger<T>`; `NodeLogicWorker` logs important events (handshake activity, DHT operations, onion processing).
+- Channels are bounded (size 2000) and use wait behaviour when full.
 
 ## Storage
 
-- `BlobStore` persiste blobs em `AppContext.BaseDirectory/data/blobs/` usando o hex SHA-256 como filename. Gravações usam arquivo temporário + rename para atomicidade.
+- `BlobStore` persists blobs under `AppContext.BaseDirectory/data/blobs/` using the hex SHA-256 fingerprint as filename. Writes use a temporary file + atomic rename.
 
 API notes (current implementation):
 
-- StoreAsync(ReadOnlyMemory<byte>): optimized to accept ReadOnlyMemory and avoid extra allocations (used widely by workers and FileIngestor).
-- RetrieveBytesAsync(byte[] hash): returns a byte[] (preferred for small manifests / metadata).
-- RetrieveToStreamAsync(byte[] hash, Stream target): stream blobs directly into a Stream for large payloads.
-- RetrieveToBufferAsync(byte[] hash, Memory<byte> destination): read directly into an existing buffer.
-- HasBlob / GetBlobSize for quick existence/size checks.
+- `StoreAsync(ReadOnlyMemory<byte>)`: accepts ReadOnlyMemory to avoid allocations.
+- `RetrieveBytesAsync(byte[] hash)`: returns a byte[] (good for small manifests/metadata).
+- `RetrieveToStreamAsync(byte[] hash, Stream target)`: writes a blob directly into a Stream for large payloads.
+- `RetrieveToBufferAsync(byte[] hash, Memory<byte> destination)`: read directly into an existing buffer.
+- `HasBlob` / `GetBlobSize` for quick existence checks.
 
 File ingestion and publishing
 
-- `FileIngestor` implements chunking + manifest creation (src/Core/FS/FileIngestor.cs). `NodeLogicWorker` uses `FileIngestor.IngestAsync` for `PublishMessageAsync`, returning a manifest/message id that can be propagated in the DHT.
+- `FileIngestor` splits files into 256 KiB chunks and writes each chunk as a blob, then stores a small JSON manifest with the list of chunk hashes (see `src/Core/FS/FileIngestor.cs`). `NodeLogicWorker` calls `FileIngestor.IngestAsync` for `PublishMessageAsync`, returning a manifest ID that can be propagated in the DHT.
 
-### Considerações sobre armazenamento de mídia (mensagens, imagens, vídeo)
+### Media storage considerations (messages, images, video)
 
-- O projeto agora suporta ingestão por chunks via `FileIngestor` (src/Core/FS/FileIngestor.cs): arquivos são lidos em pedaços fixos (256 KiB), cada pedaço é armazenado como um blob independente e um manifesto JSON é escrito contendo a lista ordenada de hashes dos blocos.
-- `FileRetriever` (src/Core/FS/FileRetriever.cs) reconstitui arquivos a partir do manifesto, usando `BlobStore.RetrieveToStreamAsync` para escrever cada chunk diretamente em um Stream (sem alocar buffers desnecessários).
+- The project supports chunked ingestion via `FileIngestor` — files are processed in fixed-size blocks (256 KiB), each chunk becomes an independent blob and a manifest JSON lists the ordered chunk hashes.
+- `FileRetriever` reconstructs files by retrieving the manifest and streaming each chunk into the output `Stream` (see `src/Core/FS/FileRetriever.cs`).
 
-Limites & comportamento atual:
+Current limits & behaviour
 
-- O `QuicListenerWorker` ainda tem um limite de payload por pacote (ver `QuicListenerWorker.cs`); para arquivos grandes o fluxo de FileIngestor + manifests/Fetch é a abordagem recomendada.
-- O `BlobStore` não precisa mais receber arquivos inteiros quando trabalhar com arquivos grandes — o padrão atual é armazenar chunks + um pequeno manifesto. Isso reduz uso de memória e permite streaming de volta ao cliente.
+- `QuicListenerWorker` still imposes a limit on per-packet payload size (see `QuicListenerWorker.cs`); for large files use the FileIngestor + manifest / FETCH flows.
+- `BlobStore` no longer must accept full files for large media — chunking plus a small manifest reduces memory usage and enables efficient streaming back to clients.
 
-Práticas recomendadas para produção / port para Rust (continua relevante):
+Production guidelines / porting to Rust
 
-1. Manter chunking + streaming para arquivos grandes e validar cross-language compatibilidade com manifests.
-2. Implementar descoberta/recuperação de chunks ausentes via DHT/network (o reassembler atual lê apenas do armazenamento local).
-3. Adicionar retenção, quotas, e políticas de replicação/peering para disponibilidade.
+1. Keep chunking + streaming for large files and validate cross-language manifest compatibility.
+2. Implement discovery and retrieval of missing chunks via DHT/network (the current reassembler only reads local storage).
+3. Add retention policies, quotas and replication/peering policies for availability.
 
-- Recomendações práticas para produção / port para Rust:
-  1. Introduzir chunking transparente para blobs grandes: divida arquivos > N MB em blocos de tamanho fixo (ex. 1–4 MB) e nomeie cada bloco por SHA-256.
-  2. Manifests: armazene um manifesto JSON/binary com a lista ordenada de blocos, tamanhos, e checksums para facilitar streaming e fetch parcial.
-  3. Replicação/P2P: adicione sincronização entre peers (background replication) para alta disponibilidade e resilência.
-  4. Quotas & GC: implemente políticas de retenção/limpeza e quotas por usuário/nó para evitar crescimento ilimitado.
-  5. Range / streaming fetch: oferecer endpoints/streams que sirvam ranges (subconjuntos) do blob sem manter tudo na memória.
-  6. Integração com CDN/Edge: para conteúdo muito quente, considerar caches de borda.
-
-Essas melhorias são particularmente importantes porque o objetivo final é ter um nó que possa hospedar e disponibilizar mídia para uma rede social descentralizada sem depender de um servidor central.
-
-## Migrando para Rust — plano prático (MVP → produção)
-
-Mapeamentos recomendados:
+Practical Rust mapping suggestions:
 
 - Async runtime: tokio
-- QUIC: quinn (compatível com QUIC; usar exemplos do quinn para listeners/clients)
+- QUIC: quinn
 - Crypto: ed25519-dalek, x25519-dalek, chacha20poly1305, hkdf
-- Channels: tokio::sync::mpsc::channel (bounded)
-- Buffer reuse: bytes::BytesMut / pools
+- Channels: tokio::sync::mpsc (bounded)
+- Buffer reuse: bytes::BytesMut or a pool
 
 Incremental port checklist:
 
-1. Reimplemente FixedHeader & HandshakePayload em Rust com testes binários de compatibilidade.
-2. Implementar BlobStore no Rust e validar com blobs criados pelo C# (teste cross-language).
-3. Portar crypto helpers e validar com vetores/assinaturas do C#.
-4. Portar NodeLogic flow + canais e teste de integração com QUIC (quinn).
+1. Implement FixedHeader & HandshakePayload with tests that validate binary compatibility.
+2. Implement BlobStore in Rust and validate with blobs created by the C# implementation.
+3. Port crypto helper primitives and validate with the C# vectors.
+4. Port NodeLogic flow + channels and add integration tests with QUIC.
 
-## Tests & recomendações
+## Tests & recommendations
 
-- Automated unit tests exist under `tests/FreedomNode.Tests` and cover core behaviors (FixedHeader, HandshakePayload, NodeLogicWorker flows, BlobStore helpers). Run them locally with:
+- Automated unit tests live under `tests/FreedomNode.Tests` and cover core behaviors (FixedHeader, HandshakePayload, NodeLogicWorker flows, BlobStore helpers). Run them locally with:
 
-```powershell
-dotnet test tests\FreedomNode.Tests
+```bash
+dotnet test tests/FreedomNode.Tests
 ```
 
-- Recommended additional tests: onion-layer round-trip, large blob chunking, and integration tests that exercise QUIC paths when native runtimes are present.
+- Recommended extra tests: onion-layer round-trip, large-blob chunking, and integration tests that exercise QUIC when native runtimes are available.
 
 ---
 
-Contribuições:
+Contributions
 
-- Quer contribuir? Veja `CONTRIBUTING.md` (criado no repo) para orientações de PR, testes e checklist de revisão.
+- Want to contribute? See `CONTRIBUTING.md` for contribution guidelines, tests and a review checklist.
 
-Referências úteis
+Helpful references
 
-- AI agent guidance: `.github/copilot-instructions.md` — curto e direto para contribuir com segurança e velocidade.
+- Developer guidelines and suggested patterns are documented in `.github/copilot-instructions.md`.
 
 ---
-Se quiser, posso abrir um PR com um conjunto de templates (ISSUE_TEMPLATE / PULL_REQUEST_TEMPLATE) e adicionar instruções de CI para executar os testes em cada PR.
 
-- Adicionar um novo worker: criar `BackgroundService` sob `src/Workers/` e registrá-lo em `Program.cs`.
-- Nova mensagem: implementar payload em `src/Core/Messages`, adicionar parsing/handler no `NodeLogicWorker` e escrever testes.
+If you'd like, I can open a PR that adds ISSUE / PULL_REQUEST templates and a CI job to run tests on every PR.
+
+Quick notes on adding new features here:
+
+- To add a new worker: create a `BackgroundService` under `src/Workers/` and register it in `Program.cs`.
+- To add a new message type: create the payload helpers in `src/Core/Messages` (ReadFromSpan/WriteToSpan), update `NodeLogicWorker` handlers and add tests.
 
 ---

@@ -1,86 +1,95 @@
 # Contributing to FreedomNode
 
-Obrigado por contribuir! Este guia rápido descreve o fluxo de trabalho, requisitos mínimos e práticas específicas do projeto para que as PRs sejam rápidas de revisar e fáceis de integrar.
+[English](./CONTRIBUTING.md) • [Português (pt-BR)](./CONTRIBUTING.pt.md)
 
-## Começando (ambiente de desenvolvimento)
+Thanks for contributing! This quick guide explains the workflow, minimum requirements and repository conventions to keep PRs easy to review and merge.
 
-- Requisitos: .NET 10 SDK instalado (localmente). Em Windows / PowerShell:
+## Getting started (development)
 
-```powershell
-# Build the solution
+- Requirements: .NET 10 SDK installed.
+
+```bash
+# build the solution
 dotnet build FalconNode.sln
 
-# Run tests
-dotnet test tests\FreedomNode.Tests
+# run unit tests
+dotnet test tests/FreedomNode.Tests
 ```
 
-- Debug: abrir a solução no Visual Studio (ou usar VS Code com C# extension). `Properties/launchSettings.json` possui perfis de execução.
+- Debug: open the solution in Visual Studio or use VS Code with the C# extension. `Properties/launchSettings.json` contains run/debug profiles.
 
-## Branches & Pull Requests
+## Branches & pull requests
 
-- Branches: siga o padrão `feature/<resumo-curto>` ou `fix/<resumo-curto>`.
-- Abra PRs contra `main` (ou a branch de integração se for definida). Inclua descrição clara, motivos e captura de telas/artefatos se aplicável.
-- Use mensagens de commit concisas e convencionais (opcionalmente: Conventional Commits): `feat: adiciona X`, `fix: corrige Y`, `chore: ...`.
+- Branch naming: prefer `feature/<short-summary>` or `fix/<short-summary>`.
+- Open PRs against `main` (or the integration branch if defined). Include a clear description, motivation and any relevant screenshots or artifacts.
+- Commit messages: keep them concise and consider using Conventional Commits: `feat: ...`, `fix: ...`, `chore: ...`.
 
-## Testes (obrigatório)
+## Tests (required)
 
-- Sempre inclua testes cobrindo o comportamento alterado/novo. O projeto contém testes em `tests/FreedomNode.Tests`.
-- Test patterns used in the repo:
-  - Use `Channel.CreateBounded<T>` to simulate in/out channels for workers.
-  - Allocate buffers with `ArrayPool<byte>.Shared.Rent(...)` and ensure `Return(...)` in finally blocks.
-  - Note: `BlobStore.StoreAsync` now accepts `ReadOnlyMemory<byte>`; tests should pass ReadOnlyMemory where possible instead of creating intermediate arrays.
-  - Retrieve methods: use `RetrieveBytesAsync` for small blobs, `RetrieveToStreamAsync` or `RetrieveToBufferAsync` for larger blobs.
-  - File ingestion tests: validate `FileIngestor.IngestAsync` produces a manifest (hex string), and that `FileRetriever.ReassembleFileAsync(manifest, stream)` reassembles the original content by streaming chunks. Use temporary test directories and clean up blob files after tests.
-  - Compose binary messages by writing `FixedHeader` then payload; tests use ReadFromSpan/WriteToSpan helpers.
+- Always add tests for changed/new behaviour. Tests live under `tests/FreedomNode.Tests`.
 
-## Revisão de PR — checklist curto
+Test patterns used in the repo:
 
-- [ ] Os novos casos são cobertos por testes automatizados (unit/integration).
-- [ ] Não há vazamentos de buffer (ArrayPool rented/returned).
-- [ ] Mensagens binárias seguem `FixedHeader` contract (size, types, endianness).
-- [ ] Alterações de crypto ou key handling foram revisadas (NSec patterns: ed25519/x25519).
-- [ ] Atualize `README.md` e `.github/copilot-instructions.md` quando grandes recursos ou abordagens mudarem.
+- Use `Channel.CreateBounded<T>` to simulate in/out channels for workers.
+- Allocate buffers with `ArrayPool<byte>.Shared.Rent(...)` and ensure `ArrayPool<byte>.Shared.Return(...)` in finally blocks.
+- `BlobStore.StoreAsync` accepts `ReadOnlyMemory<byte>` — prefer passing ReadOnlyMemory where possible to avoid temporary allocations.
+- For retrieval: prefer `RetrieveBytesAsync` for small blobs, `RetrieveToStreamAsync` and `RetrieveToBufferAsync` for larger payloads.
+- File ingestion tests: verify that `FileIngestor.IngestAsync` produces a manifest (hex string) and that `FileRetriever.ReassembleFileAsync(manifest, stream)` reassembles the original content by streaming chunks. Use temporary test directories and clean up created blob files after tests.
+- For message tests: compose binary packets by writing `FixedHeader` followed by payload and use ReadFromSpan/WriteToSpan helpers.
 
-## Padrões técnicos importantes
+## Pull request checklist
 
-- Channels + BackgroundService
-  - Workers are BackgroundService derived; register them in `Program.cs` using `builder.Services.AddHostedService<YourWorker>()`.
-  - Inter-worker comms use `Channel<NetworkPacket>` and `Channel<OutgoingMessage>`.
+- [ ] New behaviour is covered by automated tests (unit/integration).
+- [ ] No buffer leaks (ArrayPool rented/returned).
+- [ ] Binary messages comply with the `FixedHeader` contract (size, types, endianness).
+- [ ] Crypto or key handling changes were reviewed (NSec patterns: ed25519/x25519).
+- [ ] Update `README.md` and `.github/copilot-instructions.md` if the change impacts architecture or contributor guidelines.
 
-- Memory management
-  - Arrays are reused via `ArrayPool<byte>`. Always return buffers, prefer try/finally to ensure return even on error.
+## Key technical patterns
 
-- Binary protocol
-  - Messages use `FixedHeader` (FixedHeader.Size) and typed payloads. Keep write/read helpers symmetrical.
-  - Message types: 0x01=Handshake, 0x02=Onion, 0x03=FindNode(req), 0x04=FindNode(res), 0x05=STORE(req), 0x06=STORE_RES(res), 0x07=FETCH(req), 0x08=FETCH_RES(res).
+### Channels + BackgroundService
 
-- File ingestion & retrieval (important):
-  - `FileIngestor` splits files into 256 KiB chunks, stores each chunk using `BlobStore.StoreAsync(ReadOnlyMemory<byte>)`, then writes a small manifest JSON (also stored in BlobStore) which lists chunk hashes.
-  - `FileRetriever` reassembles content by retrieving the manifest (via `RetrieveBytesAsync`) and piping each chunk into the provided stream using `RetrieveToStreamAsync`.
+- Workers are implemented as BackgroundService derived types; register them in `Program.cs` with `builder.Services.AddHostedService<YourWorker>()`.
+- Inter-worker communication uses `Channel<NetworkPacket>` and `Channel<OutgoingMessage>`.
 
-- Crypto
-  - NSec keys are used for ed25519 (sign/verify) and X25519 (session keys). Keep identity keys and onion keys separate.
+### Memory management
 
-## Como adicionar um novo worker
+- Arrays are reused via `ArrayPool<byte>`. Always return rented buffers; prefer try/finally to ensure buffers are returned even on error.
 
-1. Crie um novo arquivo `src/Workers/SeuWorker.cs` implementando `BackgroundService`.
-2. Use DI to accept channels or singletons (PeerTable, RoutingTable, BlobStore) that your worker needs.
-3. Registre o worker no `Program.cs` via `AddHostedService<SeuWorker>()`.
-4. Escreva testes que usem bounded channels and NullLogger to exercise the loop.
+### Binary protocol
 
-Note: `NodeLogicWorker` constructor now requires `BlobStore` and `FileIngestor` in addition to the channels and tables. Tests should create and inject a `BlobStore` and `FileIngestor` (use `NullLogger` variants) and construct NodeSettings with a port parameter where necessary.
+- Messages are built using `FixedHeader` (FixedHeader.Size) followed by typed payloads. Keep Read/Write helpers symmetrical.
+- Message types used by NodeLogicWorker are: 0x01=Handshake, 0x02=Onion, 0x03=FindNode(req), 0x04=FindNode(res), 0x05=STORE(req), 0x06=STORE_RES(res), 0x07=FETCH(req), 0x08=FETCH_RES(res).
 
-UI / Debug mode note:
+### File ingestion & retrieval
 
-- The `TerminalUi` is registered when the application runs with `--debug`. It relies on `NodeLogicWorker` as a singleton and also requires `FileIngestor` and `FileRetriever`. Tests that exercise the UI logic can instantiate these dependencies and call the UI handlers directly (e.g., `HandleUpload`, `HandleFetch`) or run the UI in a background thread to simulate interactive flows.
+- `FileIngestor` splits files into 256 KiB chunks, stores each chunk via `BlobStore.StoreAsync(ReadOnlyMemory<byte>)`, and writes a small manifest JSON (also stored in BlobStore) that lists chunk hashes.
+- `FileRetriever` reassembles content by retrieving the manifest (`RetrieveBytesAsync`) and piping each retrieved chunk into the provided stream (`RetrieveToStreamAsync`).
 
-## Como adicionar uma nova mensagem tipo
+### Crypto
 
-1. Defina estrutura/size e helpers `ReadFromSpan/WriteToSpan` em `src/Core/Messages`.
-2. Atualize `NodeLogicWorker` switch/handler para a nova message type.
-3. Adicione testes que construam buffers com `FixedHeader` + payload e assertem o comportamento.
+- NSec is used for ed25519 (sign/verify) and X25519 (session keys). Keep identity keys and onion keys separate.
 
-Exemplo (documentado) — Ping/Pong (exemplo mínimo, *docs-only*):
+## Adding a new worker
+
+1. Create a new file under `src/Workers/YourWorker.cs` implementing `BackgroundService`.
+2. Accept dependencies (channels, singletons like PeerTable, RoutingTable, BlobStore) via DI.
+3. Register the worker in `Program.cs` with `AddHostedService<YourWorker>()`.
+4. Provide tests using bounded channels and `NullLogger` to verify the background loop.
+
+Note: NodeLogicWorker now requires `BlobStore` and `FileIngestor` in addition to channels and tables. Tests should create and inject `BlobStore` and `FileIngestor` (use `NullLogger` variants) and construct `NodeSettings` with a port parameter where required.
+
+## UI / Debug mode note
+
+- The interactive `TerminalUi` is registered when the application runs with `--debug`. It relies on `NodeLogicWorker` as a singleton and also uses `FileIngestor` and `FileRetriever`. Tests that exercise the UI can instantiate these dependencies and invoke UI handlers directly (e.g. `HandleUpload`, `HandleFetch`) or run the UI in a background thread to simulate interactive flows.
+
+## Adding a new message type
+
+1. Define the payload helpers with `ReadFromSpan/WriteToSpan` in `src/Core/Messages` and a `Size` constant.
+2. Update `NodeLogicWorker` message switch/handlers for the new message type.
+3. Add tests that construct [FixedHeader | payload] buffers and assert the expected behavior.
+
+Example (Ping/Pong docs-only example preserved here):
 
 ```csharp
 // src/Core/Messages/PingPayload.cs (example)
