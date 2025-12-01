@@ -4,6 +4,7 @@ using System.Net.Quic;
 using System.Threading.Channels;
 using FalconNode.Core.Messages;
 using FalconNode.Core.Network;
+using FalconNode.Core.State;
 
 namespace FalconNode.Workers;
 
@@ -12,12 +13,29 @@ namespace FalconNode.Workers;
 /// </summary>
 public class QuicListenerWorker : BackgroundService
 {
+    /// <summary>
+    /// Channel writer for incoming network packets.
+    /// </summary>
     private readonly ChannelWriter<NetworkPacket> _incomingWriter;
+
+    /// <summary>
+    /// The port on which the QUIC listener operates.
+    /// </summary>
+    private readonly int _listeningPort;
+
+    /// <summary>
+    /// Logger for logging information and errors.
+    /// </summary>
     private readonly ILogger<QuicListenerWorker> _logger;
 
-    public QuicListenerWorker(Channel<NetworkPacket> channel, ILogger<QuicListenerWorker> logger)
+    public QuicListenerWorker(
+        Channel<NetworkPacket> channel,
+        NodeSettings nodeSettings,
+        ILogger<QuicListenerWorker> logger
+    )
     {
         _incomingWriter = channel.Writer;
+        _listeningPort = nodeSettings.Port;
         _logger = logger;
     }
 
