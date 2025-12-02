@@ -3,6 +3,7 @@ using System.Threading.Channels;
 using FalconNode.Core.Dht;
 using FalconNode.Core.FS;
 using FalconNode.Core.Messages;
+using FalconNode.Core.Network;
 using FalconNode.Core.State;
 using FalconNode.Core.Storage;
 using FalconNode.UI;
@@ -68,6 +69,7 @@ Channel<OutgoingMessage> outChannel = Channel.CreateBounded<OutgoingMessage>(
 
 builder.Services.AddSingleton(inChannel);
 builder.Services.AddSingleton(outChannel);
+builder.Services.AddSingleton<RequestManager>();
 
 // Shared State
 builder.Services.AddSingleton<PeerTable>();

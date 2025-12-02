@@ -38,6 +38,11 @@ public class NodeLogicWorker : BackgroundService
     private readonly ChannelWriter<OutgoingMessage> _outgoingWriter;
 
     /// <summary>
+    /// The request manager for handling request-response patterns.
+    /// </summary>
+    private readonly RequestManager _requestManager;
+
+    /// <summary>
     /// The peer table for managing known peers.
     /// </summary>
     private readonly PeerTable _peerTable;
@@ -86,6 +91,7 @@ public class NodeLogicWorker : BackgroundService
     public NodeLogicWorker(
         Channel<NetworkPacket> channel,
         Channel<OutgoingMessage> outgoingChannel,
+        RequestManager requestManager,
         PeerTable peerTable,
         RoutingTable routingTable,
         BlobStore blobStore,
@@ -95,6 +101,7 @@ public class NodeLogicWorker : BackgroundService
     {
         _incomingReader = channel.Reader;
         _outgoingWriter = outgoingChannel.Writer;
+        _requestManager = requestManager;
         _peerTable = peerTable;
         _routingTable = routingTable;
         _blobStore = blobStore;
@@ -131,10 +138,18 @@ public class NodeLogicWorker : BackgroundService
     /// <param name="packet">The network packet to process.</param>
     private async Task ProcessPacket(NetworkPacket packet)
     {
+        // 1. Try to complete pending request first
+        // If it is a response(RES), we complete the awaiting task and return immediately.
+        if (_requestManager.TryCompleteRequest(packet.RequestId, packet))
+        {
+            return;
+        }
+
         _logger.LogInformation(
             $"Processing packet of type {packet.MessageType} received from {packet.Origin}"
         );
 
+        // 2. Handle based on message type
         switch (packet.MessageType)
         {
             case 0x01:
@@ -160,6 +175,49 @@ public class NodeLogicWorker : BackgroundService
                 HandleUnknown(packet);
                 break;
         }
+    }
+
+    /// <summary>
+    /// Sends a network request to the specified target endpoint with the given message type and payload,
+    /// then waits asynchronously for a response packet.
+    /// </summary>
+    /// <param name="target">The <see cref="IPEndPoint"/> representing the target node to send the request to.</param>
+    /// <param name="messageType">A <see cref="byte"/> indicating the type of message being sent.</param>
+    /// <param name="payload">A <see cref="byte"/> array containing the payload data to include in the request.</param>
+    /// <returns>
+    /// A <see cref="Task{NetworkPacket}"/> that represents the asynchronous operation,
+    /// containing the response <see cref="NetworkPacket"/> received from the target.
+    /// </returns>
+    /// <exception cref="TimeoutException">
+    /// Thrown if a response is not received within the allotted timeout period.
+    /// </exception>
+    public async Task<NetworkPacket> SendRequestAndWaitAsync(
+        IPEndPoint target,
+        byte messageType,
+        byte[] payload
+    )
+    {
+        uint requestId = _requestManager.NextId();
+
+        // 1. Prepares the packet
+        int totalSize = FixedHeader.Size + payload.Length;
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(totalSize);
+
+        new FixedHeader(messageType, requestId, (uint)payload.Length).WriteToSpan(
+            buffer.AsSpan(0, FixedHeader.Size)
+        );
+
+        payload.CopyTo(buffer.AsSpan(FixedHeader.Size));
+
+        // 2. Register the request and wait for response
+        var responseTask = _requestManager.RegisterRequestAsync(requestId, TimeSpan.FromSeconds(5));
+
+        // 3. Send the packet
+        var message = new OutgoingMessage(target, buffer.AsMemory(0, totalSize), buffer);
+        await _outgoingWriter.WriteAsync(message);
+
+        // 4. Await the response
+        return await responseTask;
     }
 
     /// <summary>

@@ -1,14 +1,14 @@
 using System.Buffers;
 using System.Net;
 using System.Threading.Channels;
-using Microsoft.Extensions.Logging.Abstractions;
 using FalconNode.Core.Dht;
-using FalconNode.Core.Storage;
 using FalconNode.Core.FS;
 using FalconNode.Core.Messages;
-using FalconNode.Core.State;
 using FalconNode.Core.Network;
+using FalconNode.Core.State;
+using FalconNode.Core.Storage;
 using FalconNode.Workers;
+using Microsoft.Extensions.Logging.Abstractions;
 using NSec.Cryptography;
 
 namespace FreedomNode.Tests;
@@ -18,17 +18,41 @@ public class NodeLogicWorkerTests
     [Fact]
     public async Task ExecuteAsync_Handshake_RegistersPeer()
     {
-        var inChannel = Channel.CreateBounded<NetworkPacket>(new BoundedChannelOptions(10) { SingleReader = false, SingleWriter = false, FullMode = BoundedChannelFullMode.Wait });
-        var outChannel = Channel.CreateBounded<OutgoingMessage>(new BoundedChannelOptions(10) { SingleReader = false, SingleWriter = false, FullMode = BoundedChannelFullMode.Wait });
+        var inChannel = Channel.CreateBounded<NetworkPacket>(
+            new BoundedChannelOptions(10)
+            {
+                SingleReader = false,
+                SingleWriter = false,
+                FullMode = BoundedChannelFullMode.Wait,
+            }
+        );
+        var outChannel = Channel.CreateBounded<OutgoingMessage>(
+            new BoundedChannelOptions(10)
+            {
+                SingleReader = false,
+                SingleWriter = false,
+                FullMode = BoundedChannelFullMode.Wait,
+            }
+        );
 
         var peerTable = new PeerTable();
         var nodeSettings = new NodeSettings(NodeId.Random(), 40000);
         var blobStore = new BlobStore(new NullLogger<BlobStore>());
         var fileIngestor = new FileIngestor(blobStore);
         var routingTable = new RoutingTable(nodeSettings);
+        var requestManager = new RequestManager();
         var logger = new NullLogger<NodeLogicWorker>();
 
-        var worker = new NodeLogicWorker(inChannel, outChannel, peerTable, routingTable, blobStore, fileIngestor, logger);
+        var worker = new NodeLogicWorker(
+            inChannel,
+            outChannel,
+            requestManager,
+            peerTable,
+            routingTable,
+            blobStore,
+            fileIngestor,
+            logger
+        );
 
         using var cts = new CancellationTokenSource();
 
@@ -55,7 +79,13 @@ public class NodeLogicWorkerTests
             payload.WriteToSpan(buffer.AsSpan(0, HandshakePayload.Size));
 
             var origin = new IPEndPoint(IPAddress.Loopback, 40321);
-            var pkt = new NetworkPacket(origin, 0x01, 0, buffer.AsMemory(0, HandshakePayload.Size), buffer);
+            var pkt = new NetworkPacket(
+                origin,
+                0x01,
+                0,
+                buffer.AsMemory(0, HandshakePayload.Size),
+                buffer
+            );
 
             await inChannel.Writer.WriteAsync(pkt);
 
@@ -70,21 +100,40 @@ public class NodeLogicWorkerTests
         {
             ArrayPool<byte>.Shared.Return(buffer);
             cts.Cancel();
-            try { await worker.StopAsync(CancellationToken.None); } catch { }
+            try
+            {
+                await worker.StopAsync(CancellationToken.None);
+            }
+            catch { }
         }
     }
 
     [Fact]
     public async Task ExecuteAsync_DhtLookup_SendsResponse()
     {
-        var inChannel = Channel.CreateBounded<NetworkPacket>(new BoundedChannelOptions(10) { SingleReader = false, SingleWriter = false, FullMode = BoundedChannelFullMode.Wait });
-        var outChannel = Channel.CreateBounded<OutgoingMessage>(new BoundedChannelOptions(10) { SingleReader = false, SingleWriter = false, FullMode = BoundedChannelFullMode.Wait });
+        var inChannel = Channel.CreateBounded<NetworkPacket>(
+            new BoundedChannelOptions(10)
+            {
+                SingleReader = false,
+                SingleWriter = false,
+                FullMode = BoundedChannelFullMode.Wait,
+            }
+        );
+        var outChannel = Channel.CreateBounded<OutgoingMessage>(
+            new BoundedChannelOptions(10)
+            {
+                SingleReader = false,
+                SingleWriter = false,
+                FullMode = BoundedChannelFullMode.Wait,
+            }
+        );
 
         var peerTable = new PeerTable();
         var nodeSettings = new NodeSettings(NodeId.Random(), 40001);
         var blobStore = new BlobStore(new NullLogger<BlobStore>());
         var fileIngestor = new FileIngestor(blobStore);
         var routingTable = new RoutingTable(nodeSettings);
+        var requestManager = new RequestManager();
         var logger = new NullLogger<NodeLogicWorker>();
 
         // Pre-populate routing table with a contact
@@ -92,7 +141,16 @@ public class NodeLogicWorkerTests
         var contactEp = new IPEndPoint(IPAddress.Loopback, 12345);
         routingTable.AddContact(new Contact(contactId, contactEp));
 
-        var worker = new NodeLogicWorker(inChannel, outChannel, peerTable, routingTable, blobStore, fileIngestor, logger);
+        var worker = new NodeLogicWorker(
+            inChannel,
+            outChannel,
+            requestManager,
+            peerTable,
+            routingTable,
+            blobStore,
+            fileIngestor,
+            logger
+        );
 
         using var cts = new CancellationTokenSource();
         await worker.StartAsync(cts.Token);
@@ -106,10 +164,18 @@ public class NodeLogicWorkerTests
         try
         {
             // Write header (0x03 = FIND_NODE request)
-            new FixedHeader(0x03, 0, (uint)reqPayload.Length).WriteToSpan(buffer.AsSpan(0, FixedHeader.Size));
+            new FixedHeader(0x03, 0, (uint)reqPayload.Length).WriteToSpan(
+                buffer.AsSpan(0, FixedHeader.Size)
+            );
             reqPayload.CopyTo(buffer.AsSpan(FixedHeader.Size));
 
-            var pkt = new NetworkPacket(new IPEndPoint(IPAddress.Loopback, 40000), 0x03, 0, buffer.AsMemory(FixedHeader.Size, reqPayload.Length), buffer);
+            var pkt = new NetworkPacket(
+                new IPEndPoint(IPAddress.Loopback, 40000),
+                0x03,
+                0,
+                buffer.AsMemory(FixedHeader.Size, reqPayload.Length),
+                buffer
+            );
 
             await inChannel.Writer.WriteAsync(pkt);
 
@@ -129,7 +195,11 @@ public class NodeLogicWorkerTests
         {
             ArrayPool<byte>.Shared.Return(buffer);
             cts.Cancel();
-            try { await worker.StopAsync(CancellationToken.None); } catch { }
+            try
+            {
+                await worker.StopAsync(CancellationToken.None);
+            }
+            catch { }
         }
     }
 }
