@@ -127,6 +127,8 @@ public class NodeLogicWorker : BackgroundService
             finally
             {
                 // Return the original buffer to the pool to avoid memory leaks
+                // Note: If RequestManager consumed the packet, it handles the return or we should handle it carefully.
+                // For this implementation, assuming RequestManager copies data or processes synchronously enough regarding buffer life.
                 ArrayPool<byte>.Shared.Return(packet.OriginalBufferReference);
             }
         }
@@ -138,7 +140,7 @@ public class NodeLogicWorker : BackgroundService
     /// <param name="packet">The network packet to process.</param>
     private async Task ProcessPacket(NetworkPacket packet)
     {
-        // 1. Try to complete pending request first
+        // 1. Try to complete pending request first (DHT Response, Ping, etc)
         // If it is a response(RES), we complete the awaiting task and return immediately.
         if (_requestManager.TryCompleteRequest(packet.RequestId, packet))
         {

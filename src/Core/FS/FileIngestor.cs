@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Security.Cryptography;
 using System.Text.Json;
+using FalconNode.Core.Dht;
 using FalconNode.Core.Storage;
 
 namespace FalconNode.Core.FS;
@@ -15,6 +16,12 @@ public class FileIngestor
     /// The blob store used for storing file chunks and manifests.
     /// </summary>
     private readonly BlobStore _blobStore;
+
+    /// <summary>
+    /// The DHT service used for distributed hash table operations.
+    /// </summary>
+    private readonly DhtService _dhtService;
+
     /// <summary>
     /// The size of each chunk to be read from the source stream.
     /// </summary>
@@ -24,9 +31,11 @@ public class FileIngestor
     /// Initializes a new instance of the <see cref="FileIngestor"/> class.
     /// </summary>
     /// <param name="blobStore">The blob store used for storing file chunks and manifests.</param>
-    public FileIngestor(BlobStore blobStore)
+    /// <param name="dhtService">The DHT service used for distributed hash table operations.</param>
+    public FileIngestor(BlobStore blobStore, DhtService dhtService)
     {
         _blobStore = blobStore;
+        _dhtService = dhtService;
     }
 
     /// <summary>

@@ -1,6 +1,9 @@
+using System.Buffers;
 using System.Net;
 using System.Numerics;
+using System.Threading.Channels;
 using FalconNode.Core.Messages;
+using FalconNode.Core.Network;
 using FalconNode.Core.State;
 using FalconNode.Workers;
 
@@ -13,11 +16,6 @@ namespace FalconNode.Core.Dht;
 public class DhtService
 {
     /// <summary>
-    /// The NodeLogicWorker instance used for sending requests and receiving responses from peer nodes.
-    /// </summary>
-    private readonly NodeLogicWorker _nodeLogicWorker;
-
-    /// <summary>
     /// The routing table that maintains known contacts in the DHT.
     /// </summary>
     private readonly RoutingTable _routingTable;
@@ -28,20 +26,32 @@ public class DhtService
     private readonly NodeSettings _settings;
 
     /// <summary>
+    /// The request manager for handling network requests and responses.
+    /// </summary>
+    private readonly RequestManager _requestManager;
+
+    /// <summary>
+    /// The node logic worker responsible for sending requests and processing responses.
+    /// </summary>
+    private readonly ChannelWriter<OutgoingMessage> _outWriter;
+
+    /// <summary>
     /// The logger instance for logging DHT-related information.
     /// </summary>
     private readonly ILogger<DhtService> _logger;
 
     public DhtService(
-        NodeLogicWorker nodeLogicWorker,
         RoutingTable routingTable,
         NodeSettings settings,
+        RequestManager requestManager,
+        ChannelWriter<OutgoingMessage> outWriter,
         ILogger<DhtService> logger
     )
     {
-        _nodeLogicWorker = nodeLogicWorker;
         _routingTable = routingTable;
         _settings = settings;
+        _requestManager = requestManager;
+        _outWriter = outWriter;
         _logger = logger;
     }
 
@@ -137,26 +147,59 @@ public class DhtService
     /// </returns>
     private async Task<List<Contact>> QueryPeerAsync(IPEndPoint endpoint, NodeId targetId)
     {
-        // Create payload with FIND_NODE request
-        byte[] payload = new byte[32];
-        targetId.Span.CopyTo(payload);
+        uint requestId = _requestManager.NextId();
 
-        // Send request and wait for response
-        NetworkPacket responsePacket = await _nodeLogicWorker.SendRequestAndWaitAsync(
-            endpoint,
-            0x03,
-            payload
-        );
+        // 1. Create payload with FIND_NODE request(0x03)
+        int payloadSize = 32;
+        int totalSize = FixedHeader.Size + payloadSize;
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(totalSize);
 
-        // Parses the response (0x04 = FIND_NODE_RES)
-        if (responsePacket.MessageType == 0x04)
+        try
         {
-            // Deserializa lista de contatos (Lógica simplificada aqui)
-            // var response = FindNodeResponse.ReadFromSpan(responsePacket.Payload.Span);
-            // return response.Contacts;
+            new FixedHeader(0x03, requestId, (uint)payloadSize).WriteToSpan(
+                buffer.AsSpan(0, FixedHeader.Size)
+            );
 
-            // NOTA: Você precisará expor o método de leitura do FindNodeResponse
-            return new List<Contact>(); // Placeholder
+            // Payload (Target ID)
+            targetId.Span.CopyTo(buffer.AsSpan(FixedHeader.Size));
+
+            // 2. Register the request before sending
+            Task<NetworkPacket> responseTask = _requestManager.RegisterRequestAsync(
+                requestId,
+                TimeSpan.FromSeconds(5)
+            );
+
+            // 3. Send the request
+            OutgoingMessage msg = new OutgoingMessage(
+                endpoint,
+                buffer.AsMemory(0, totalSize),
+                buffer
+            );
+            await _outWriter.WriteAsync(msg);
+
+            // 4. Await the response
+            NetworkPacket responsePacket = await responseTask;
+
+            // 5. Validate and parse the response
+            if (responsePacket.MessageType == 0x04)
+            {
+                try
+                {
+                    var response = FindNodeResponse.ReadFromSpan(responsePacket.Payload.Span);
+                    return response.Contacts;
+                }
+                finally
+                {
+                    ArrayPool<byte>.Shared.Return(responsePacket.OriginalBufferReference);
+                }
+            }
+        }
+        catch (Exception)
+        {
+            // Returns the send buffer if an error occurs before sending
+            // (If sent successfully, ConnectionManager returns it)
+            // ArrayPool<byte>.Shared.Return(buffer);
+            throw;
         }
 
         return new List<Contact>();

@@ -38,7 +38,14 @@ public class NodeLogicWorkerTests
         var peerTable = new PeerTable();
         var nodeSettings = new NodeSettings(NodeId.Random(), 40000);
         var blobStore = new BlobStore(new NullLogger<BlobStore>());
-        var fileIngestor = new FileIngestor(blobStore);
+        var dhtService = new DhtService(
+            new RoutingTable(nodeSettings),
+            nodeSettings,
+            new RequestManager(),
+            outChannel.Writer,
+            new NullLogger<DhtService>()
+        );
+        var fileIngestor = new FileIngestor(blobStore, dhtService);
         var routingTable = new RoutingTable(nodeSettings);
         var requestManager = new RequestManager();
         var logger = new NullLogger<NodeLogicWorker>();
@@ -129,11 +136,19 @@ public class NodeLogicWorkerTests
         );
 
         var peerTable = new PeerTable();
-        var nodeSettings = new NodeSettings(NodeId.Random(), 40001);
-        var blobStore = new BlobStore(new NullLogger<BlobStore>());
-        var fileIngestor = new FileIngestor(blobStore);
-        var routingTable = new RoutingTable(nodeSettings);
         var requestManager = new RequestManager();
+        var nodeSettings = new NodeSettings(NodeId.Random(), 40001);
+        var routingTable = new RoutingTable(nodeSettings);
+        var blobStore = new BlobStore(new NullLogger<BlobStore>());
+        var dhtService = new DhtService(
+            routingTable,
+            nodeSettings,
+            requestManager,
+            outChannel.Writer,
+            new NullLogger<DhtService>()
+        );
+        var fileIngestor = new FileIngestor(blobStore, dhtService);
+
         var logger = new NullLogger<NodeLogicWorker>();
 
         // Pre-populate routing table with a contact

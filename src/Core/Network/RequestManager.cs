@@ -43,7 +43,10 @@ public class RequestManager
             TaskCreationOptions.RunContinuationsAsynchronously
         );
 
-        _pendingRequests.TryAdd(requestId, tcs);
+        if (!_pendingRequests.TryAdd(requestId, tcs))
+        {
+            return Task.FromException<NetworkPacket>(new Exception("Duplicate request ID."));
+        }
 
         var cts = new CancellationTokenSource(timeout);
 
@@ -53,6 +56,7 @@ public class RequestManager
             {
                 removedTcs.TrySetException(new TimeoutException("Request timed out."));
             }
+            cts.Dispose();
         });
 
         return tcs.Task;

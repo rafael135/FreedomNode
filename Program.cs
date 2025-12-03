@@ -74,6 +74,7 @@ builder.Services.AddSingleton<RequestManager>();
 // Shared State
 builder.Services.AddSingleton<PeerTable>();
 builder.Services.AddSingleton<RoutingTable>();
+builder.Services.AddSingleton<DhtService>();
 
 // File Storage
 builder.Services.AddSingleton<BlobStore>();

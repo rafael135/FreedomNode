@@ -1,4 +1,9 @@
+using System.Net;
 using System.Text.Json;
+using System.Threading.Channels;
+using FalconNode.Core.Dht;
+using FalconNode.Core.Messages;
+using FalconNode.Core.Network;
 using FalconNode.Core.Storage;
 
 namespace FalconNode.Core.FS;
@@ -14,12 +19,45 @@ public class FileRetriever
     private readonly BlobStore _blobStore;
 
     /// <summary>
+    /// The DHT service used for distributed hash table operations.
+    /// </summary>
+    private readonly DhtService _dhtService;
+
+    /// <summary>
+    /// The request manager for handling network requests and responses.
+    /// </summary>
+    private readonly RequestManager _requestManager;
+
+    /// <summary>
+    /// The node logic worker responsible for sending requests and processing responses.
+    /// </summary>
+    private readonly ChannelWriter<OutgoingMessage> _outWriter;
+
+    /// <summary>
+    /// The logger instance for logging file retrieval information.
+    /// </summary>
+    private readonly ILogger<FileRetriever> _logger;
+
+    /// <summary>
     /// Initializes a new instance of the <see cref="FileRetriever"/> class.
     /// </summary>
     /// <param name="blobStore">The blob store used for retrieving file chunks and manifests.</param>
-    public FileRetriever(BlobStore blobStore)
+    /// <param name="dhtService">The DHT service used for distributed hash table operations.</param>
+    /// <param name="requestManager">The request manager for handling network requests and responses.</param>
+    /// <param name="outWriter">The node logic worker responsible for sending requests and processing responses.</param>
+    public FileRetriever(
+        BlobStore blobStore,
+        DhtService dhtService,
+        RequestManager requestManager,
+        ChannelWriter<OutgoingMessage> outWriter,
+        ILogger<FileRetriever> logger
+    )
     {
         _blobStore = blobStore;
+        _dhtService = dhtService;
+        _requestManager = requestManager;
+        _outWriter = outWriter;
+        _logger = logger;
     }
 
     /// <summary>
@@ -42,19 +80,19 @@ public class FileRetriever
     /// Thrown if the manifest cannot be deserialized.
     /// </exception>
     /// </summary>
-    public async Task ReassembleFileAsync(string manifestHash, Stream outputStream)
+    public async Task ReassembleFileAsync(string manifestHashString, Stream outputStream)
     {
+        byte[] manifestHash = Convert.FromHexString(manifestHashString);
+
         // 1. Downloads the manifest
         // Use RetrieveBytesAsync because manifests are small and we need to parse them
-        byte[]? manifestBytes = await _blobStore.RetrieveBytesAsync(
-            Convert.FromHexString(manifestHash)
-        );
+        byte[]? manifestBytes = await _blobStore.RetrieveBytesAsync(manifestHash);
         if (manifestBytes == null)
         {
-            throw new FileNotFoundException("Manifest not found in blob store", manifestHash);
+            throw new FileNotFoundException("Manifest not found in blob store", manifestHashString);
         }
 
-        var manifest = JsonSerializer.Deserialize<FileManifest>(manifestBytes);
+        FileManifest? manifest = JsonSerializer.Deserialize<FileManifest>(manifestBytes);
         if (manifest == null)
         {
             throw new InvalidDataException("Failed to deserialize file manifest");
@@ -72,15 +110,76 @@ public class FileRetriever
 
             if (!found)
             {
-                // TENSION: Implement DHT retrieval here
-                // await _networkManager.FetchFromNetwork(chunkHash, outputStream);
-                throw new FileNotFoundException(
-                    $"Chunk {chunkHashString} not found in blob store."
-                );
+                _logger.LogInformation($"Chunk {chunkHashString} not found in blob store. Searching DHT...");
+
+                byte[]? chunkData = await GetBlobOrFetchAsync(chunkHash);
+
+                if(chunkData == null)
+                {
+                    throw new FileNotFoundException(
+                        $"Chunk {chunkHashString} not found in blob store."
+                    );
+                }
+
+                await outputStream.WriteAsync(chunkData);
             }
 
             // Note: RetrieveToStreamAsync already wrote to outputStream,
             // so we don't need an explicit WriteAsync here.
         }
+    }
+
+    /// <summary>
+    /// Attempts to retrieve a blob identified by the given hash. The method first checks the local blob store.
+    /// If not found locally, it performs a DHT lookup to find potential holders and tries to fetch the blob from them.
+    /// Successfully fetched blobs are cached locally before returning.
+    /// </summary>
+    /// <param name="hash">The hash identifying the blob to retrieve.</param>
+    /// <returns>
+    /// A byte array containing the blob data if found; otherwise, <c>null</c>.
+    /// </returns>
+    private async Task<byte[]?> GetBlobOrFetchAsync(byte[] hash)
+    {
+        // 1. Check local blob store
+        byte[]? localData = await _blobStore.RetrieveBytesAsync(hash);
+
+        if (localData != null)
+        {
+            return localData;
+        }
+
+        // 2. DHT Lookup
+        NodeId targetId = new NodeId(hash);
+        List<Contact> potentialHolders = await _dhtService.LookupAsync(targetId);
+
+        _logger.LogInformation($"DHT found {potentialHolders.Count} potential holders for blob.");
+
+        // 3. Try to request the blob from each contact (ideally in parallel, but sequential for simplicity)
+        foreach (var contact in potentialHolders)
+        {
+            try
+            {
+                var data = await FetchFromNodeAsync(contact.Endpoint, hash);
+                if (data != null)
+                {
+                    await _blobStore.StoreAsync(data); // Cache locally
+                    return data;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($"Failed to fetch blob from {contact.Endpoint}: {ex.Message}");
+            }
+        }
+
+        return null;
+    }
+
+    private async Task<byte[]> FetchFromNodeAsync(IPEndPoint target, byte[] hash)
+    {
+        uint requestId = _requestManager.NextId();
+
+        // TODO: Fetch Blob Request Payload
+        throw new NotImplementedException();
     }
 }
