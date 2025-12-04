@@ -45,7 +45,12 @@ public class NodeLogicWorkerTests
             outChannel.Writer,
             new NullLogger<DhtService>()
         );
-        var fileIngestor = new FileIngestor(blobStore, dhtService);
+        var fileIngestor = new FileIngestor(
+            blobStore,
+            dhtService,
+            outChannel.Writer,
+            new NullLogger<FileIngestor>()
+        );
         var routingTable = new RoutingTable(nodeSettings);
         var requestManager = new RequestManager();
         var logger = new NullLogger<NodeLogicWorker>();
@@ -147,7 +152,12 @@ public class NodeLogicWorkerTests
             outChannel.Writer,
             new NullLogger<DhtService>()
         );
-        var fileIngestor = new FileIngestor(blobStore, dhtService);
+        var fileIngestor = new FileIngestor(
+            blobStore,
+            dhtService,
+            outChannel.Writer,
+            new NullLogger<FileIngestor>()
+        );
 
         var logger = new NullLogger<NodeLogicWorker>();
 

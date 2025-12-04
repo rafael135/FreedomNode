@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Net;
 using System.Text.Json;
 using System.Threading.Channels;
@@ -110,11 +111,13 @@ public class FileRetriever
 
             if (!found)
             {
-                _logger.LogInformation($"Chunk {chunkHashString} not found in blob store. Searching DHT...");
+                _logger.LogInformation(
+                    $"Chunk {chunkHashString} not found in blob store. Searching DHT..."
+                );
 
                 byte[]? chunkData = await GetBlobOrFetchAsync(chunkHash);
 
-                if(chunkData == null)
+                if (chunkData == null)
                 {
                     throw new FileNotFoundException(
                         $"Chunk {chunkHashString} not found in blob store."
@@ -175,11 +178,40 @@ public class FileRetriever
         return null;
     }
 
+    /// <summary>
+    /// Asynchronously sends a request to a remote node to fetch a file by its hash and returns the file data as a byte array.
+    /// </summary>
+    /// <param name="target">The <see cref="IPEndPoint"/> of the target node to send the request to.</param>
+    /// <param name="hash">A 32-byte array representing the hash of the file to retrieve.</param>
+    /// <returns>A task that represents the asynchronous operation. The task result contains the file data as a byte array.</returns>
+    /// <exception cref="Exception">Thrown if the response message type is invalid.</exception>
     private async Task<byte[]> FetchFromNodeAsync(IPEndPoint target, byte[] hash)
     {
         uint requestId = _requestManager.NextId();
 
-        // TODO: Fetch Blob Request Payload
-        throw new NotImplementedException();
+        int packetSize = FixedHeader.Size + 32;
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(packetSize);
+
+        new FixedHeader(0x07, requestId, 32).WriteToSpan(buffer.AsSpan(0, FixedHeader.Size));
+        hash.CopyTo(buffer.AsSpan(FixedHeader.Size));
+
+        Task<NetworkPacket> task = _requestManager.RegisterRequestAsync(
+            requestId,
+            TimeSpan.FromSeconds(5)
+        );
+
+        await _outWriter.WriteAsync(
+            new OutgoingMessage(target, buffer.AsMemory(0, packetSize), buffer)
+        );
+
+        NetworkPacket response = await task;
+
+        // 0x08 = FETCH_RES
+        if (response.MessageType == 0x08)
+        {
+            return response.Payload.ToArray();
+        }
+
+        throw new Exception("Invalid response message type");
     }
 }
