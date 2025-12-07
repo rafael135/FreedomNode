@@ -15,7 +15,14 @@ namespace FalconNode.Workers;
 /// </summary>
 public class ConnectionManagerWorker : BackgroundService
 {
+    /// <summary>
+    /// Channel reader for outgoing messages.
+    /// </summary>
     private readonly ChannelReader<OutgoingMessage> _outReader;
+
+    /// <summary>
+    /// Dictionary to keep track of active QUIC connections.
+    /// </summary>
     private readonly Dictionary<IPEndPoint, QuicConnection> _activeConnections = new();
 
     public ConnectionManagerWorker(Channel<OutgoingMessage> outChannel)

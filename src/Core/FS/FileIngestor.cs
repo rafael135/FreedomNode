@@ -161,6 +161,7 @@ public class FileIngestor
             {
                 // Send STORE (0x05)
                 await SendStoreToNodeAsync(node.Endpoint, chunkData);
+                _logger.LogInformation($"Chunk sent to {node.Endpoint}");
             }
 
             if (nodes.Count > 0)

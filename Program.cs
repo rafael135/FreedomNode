@@ -69,6 +69,11 @@ Channel<OutgoingMessage> outChannel = Channel.CreateBounded<OutgoingMessage>(
 
 builder.Services.AddSingleton(inChannel);
 builder.Services.AddSingleton(outChannel);
+builder.Services.AddSingleton<ChannelReader<NetworkPacket>>(_ => inChannel.Reader);
+builder.Services.AddSingleton<ChannelWriter<NetworkPacket>>(_ => inChannel.Writer);
+builder.Services.AddSingleton<ChannelReader<OutgoingMessage>>(_ => outChannel.Reader);
+builder.Services.AddSingleton<ChannelWriter<OutgoingMessage>>(_ => outChannel.Writer);
+
 builder.Services.AddSingleton<RequestManager>();
 
 // Shared State
