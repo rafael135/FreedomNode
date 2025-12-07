@@ -509,6 +509,10 @@ public class NodeLogicWorker : BackgroundService
         // Find closest nodes to the target on our table
         List<Contact> closestNodes = _routingTable.FindClosest(request.TargetId);
 
+        // Optimization: Remove the requester from the list if present
+        // We don't need to tell the node about itself
+        closestNodes.RemoveAll(c => c.Endpoint.Equals(packet.Origin));
+
         // Build the response
         FindNodeResponse response = new FindNodeResponse(closestNodes);
         int responseSize = response.CalculateSize();

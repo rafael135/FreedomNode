@@ -2,6 +2,7 @@ using System.Buffers;
 using System.Net;
 using System.Text;
 using System.Threading.Channels;
+using FalconNode.Core.Dht;
 using FalconNode.Core.FS;
 using FalconNode.Core.Messages;
 using FalconNode.Core.Network;
@@ -36,6 +37,11 @@ public class TerminalUi
     private readonly FileRetriever _retriever;
 
     /// <summary>
+    /// The DHT service for distributed hash table operations.
+    /// </summary>
+    private readonly DhtService _dhtService;
+
+    /// <summary>
     /// The channel writer for outgoing messages.
     /// </summary>
     private readonly ChannelWriter<OutgoingMessage> _outWriter;
@@ -49,6 +55,7 @@ public class TerminalUi
         NodeLogicWorker logicWorker,
         FileIngestor ingestor,
         FileRetriever retriever,
+        DhtService dhtService,
         Channel<OutgoingMessage> outChannel,
         IHostApplicationLifetime lifetime
     )
@@ -56,15 +63,27 @@ public class TerminalUi
         _logicWorker = logicWorker;
         _ingestor = ingestor;
         _retriever = retriever;
+        _dhtService = dhtService;
         _outWriter = outChannel.Writer;
         _lifetime = lifetime;
+    }
+
+    private void ShowDescription()
+    {
+        Console.WriteLine("connect <port> - Connect to a peer at specified port");
+        Console.WriteLine("dht - Bootstrap the DHT network");
+        Console.WriteLine("upload <text> - Upload text as a file to the network");
+        Console.WriteLine("fetch <manifestHash> - Fetch a file by its manifest hash");
+        Console.WriteLine("send-store <port> <text> - Send STORE packet to peer at port");
+        Console.WriteLine("exit - Gracefully shut down the node\n");
     }
 
     public async Task RunAsync()
     {
         Console.WriteLine(
-            "\n[Terminal UI Active] Type commands (connect, upload, fetch, send-store, exit):"
+            "\n[Terminal UI Active] Type commands (connect, dht, upload, fetch, send-store, exit):"
         );
+        ShowDescription();
 
         while (true)
         {
@@ -91,6 +110,10 @@ public class TerminalUi
                         await HandleConnect(parts);
                         break;
 
+                    case "dht":
+                        await HandleDht();
+                        break;
+
                     case "upload":
                         await HandleUpload(input);
                         break;
@@ -105,8 +128,9 @@ public class TerminalUi
 
                     default:
                         Console.WriteLine(
-                            "Unknown command. (exit, connect, upload, fetch, send-store)"
+                            "Unknown command. (exit, connect, dht, upload, fetch, send-store)"
                         );
+                        ShowDescription();
                         break;
                 }
             }
@@ -134,6 +158,15 @@ public class TerminalUi
         await _outWriter.WriteAsync(handShake);
 
         Console.WriteLine($"[System] Sent handshake to {targetPort}.");
+    }
+
+    /// <summary>
+    /// Handles the DHT bootstrap command.
+    /// </summary>
+    /// <returns>A task representing the asynchronous operation.</returns>
+    private async Task HandleDht()
+    {
+        await this._dhtService.BootstrapAsync();
     }
 
     private async Task HandleUpload(string input)
