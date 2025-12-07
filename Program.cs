@@ -47,8 +47,13 @@ if (File.Exists(keyPath))
 }
 else
 {
+    KeyCreationParameters creationParameters = new KeyCreationParameters
+    {
+        ExportPolicy = KeyExportPolicies.AllowPlaintextExport,
+    };
+
     Directory.CreateDirectory(Path.GetDirectoryName(keyPath)!);
-    storageKey = Key.Create(algorithm);
+    storageKey = Key.Create(algorithm, creationParameters);
 
     byte[] keyBytes = storageKey.Export(KeyBlobFormat.RawSymmetricKey);
     await File.WriteAllBytesAsync(keyPath, keyBytes);
