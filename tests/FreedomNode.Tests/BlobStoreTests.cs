@@ -4,6 +4,9 @@ using System.Threading.Tasks;
 using System.IO;
 using Microsoft.Extensions.Logging.Abstractions;
 using FalconNode.Core.Storage;
+using FalconNode.Core.State;
+using FalconNode.Core.Dht;
+using NSec.Cryptography;
 using Xunit;
 
 namespace FreedomNode.Tests;
@@ -17,7 +20,9 @@ public class BlobStoreTests : IDisposable
     {
         // BlobStore writes under AppContext.BaseDirectory/data/blobs/
         // Using test run directory is OK; tests must clean up after themselves.
-        _store = new BlobStore(new NullLogger<BlobStore>());
+        var storageKey = Key.Create(AeadAlgorithm.ChaCha20Poly1305);
+        var nodeSettings = new NodeSettings(NodeId.Random(), 0, storageKey);
+        _store = new BlobStore(nodeSettings, new NullLogger<BlobStore>());
         _baseDir = Path.Combine(AppContext.BaseDirectory, "data", "blobs");
         Directory.CreateDirectory(_baseDir);
     }

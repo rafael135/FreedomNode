@@ -3,13 +3,17 @@ using System.Text.Json.Serialization;
 namespace FalconNode.Core.FS;
 
 /// <summary>
-/// Represents a file manifest that contains metadata about a file.
-/// The manifest includes the file name, content type, total size, and a list of chunk
+/// Represents a file manifest containing metadata and chunk references for content-addressed storage and retrieval.
 /// </summary>
+/// <remarks>
+/// Manifests are serialized to JSON and stored in the blob store. Each manifest references one or more
+/// content-addressed chunks (256 KiB by default) that together comprise the complete file. The manifest
+/// includes the file name, MIME type, total size, and ordered list of chunk hashes for reassembly.
+/// </remarks>
 public record FileManifest
 {
     /// <summary>
-    /// Represents a file manifest that contains metadata about a file.
+    /// The original file name.
     /// </summary>
     public string FileName { get; init; } = string.Empty;
 
@@ -17,6 +21,7 @@ public record FileManifest
     /// The content type of the file, defaulting to "application/octet-stream".
     /// </summary>
     public string ContentType { get; init; } = "application/octet-stream";
+
     /// <summary>
     /// The size of the file in bytes.
     /// </summary>

@@ -8,6 +8,7 @@ using FalconNode.Core.State;
 using FalconNode.Core.Storage;
 using FalconNode.UI;
 using FalconNode.Workers;
+using NSec.Cryptography;
 
 // --- ARGUMENT PARSING ---
 // Example of use: dotnet run --port 5001 --seed 5000
@@ -34,6 +35,28 @@ for (int i = 0; i < args.Length; i++)
 
 Console.Title = $"FreedomNode - Port {myPort}";
 
+string keyPath = Path.Combine(AppContext.BaseDirectory, "data", "storage.key");
+Key storageKey;
+
+var algorithm = AeadAlgorithm.ChaCha20Poly1305;
+
+if (File.Exists(keyPath))
+{
+    byte[] keyBytes = await File.ReadAllBytesAsync(keyPath);
+    storageKey = Key.Import(algorithm, keyBytes, KeyBlobFormat.RawSymmetricKey);
+}
+else
+{
+    Directory.CreateDirectory(Path.GetDirectoryName(keyPath)!);
+    storageKey = Key.Create(algorithm);
+
+    byte[] keyBytes = storageKey.Export(KeyBlobFormat.RawSymmetricKey);
+    await File.WriteAllBytesAsync(keyPath, keyBytes);
+    Console.ForegroundColor = ConsoleColor.Green;
+    Console.WriteLine("Storage key created and saved.");
+    Console.ResetColor();
+}
+
 HostApplicationBuilder builder = Host.CreateApplicationBuilder(args);
 
 // --- LOGGING SETTINGS ---
@@ -45,7 +68,7 @@ builder.Logging.SetMinimumLevel(LogLevel.Information);
 
 // Local Node ID & Settings
 NodeId localNodeId = NodeId.Random();
-NodeSettings nodeSettings = new NodeSettings(localNodeId, myPort, seedPort);
+NodeSettings nodeSettings = new NodeSettings(localNodeId, myPort, storageKey, seedPort);
 builder.Services.AddSingleton(nodeSettings);
 
 // Channels Configuration

@@ -90,7 +90,7 @@ Comandos interativos do `TerminalUi`:
 
 ## Storage
 
-- `BlobStore` persiste blobs em `AppContext.BaseDirectory/data/blobs/` usando o hexadecimal SHA-256 como nome de arquivo. As gravações usam um arquivo temporário seguido de renomeação para garantir atomicidade.
+- `BlobStore` persiste blobs em `AppContext.BaseDirectory/data/blobs/` usando o hexadecimal SHA-256 como nome de arquivo. Todos os blobs são criptografados com ChaCha20-Poly1305 usando a chave de armazenamento do nó antes de serem gravados no disco. As gravações usam um arquivo temporário seguido de renomeação para garantir atomicidade.
 
 Notas da API (implementação atual):
 
@@ -143,6 +143,12 @@ dotnet test tests\FreedomNode.Tests
 ```
 
 - Testes recomendados adicionais: onion-layer round-trip, chunking de arquivos grandes, e testes de integração que exerçam caminhos QUIC quando runtimes nativos estão presentes.
+
+## Padrões de documentação
+
+- Todas as classes, métodos e propriedades públicas possuem comentários de documentação XML (`///`) para IntelliSense e tooltips hover.
+- Summaries de classe são de linha única para compatibilidade; comportamento detalhado é documentado em seções `<remarks>`.
+- Veja `CONTRIBUTING.pt.md` para padrões de documentação XML e exemplos.
 
 ---
 

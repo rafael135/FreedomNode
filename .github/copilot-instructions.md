@@ -52,7 +52,9 @@ All messages: `[FixedHeader 16 bytes | payload]`. See `src/Core/Network/FixedHea
 
 5. **Crypto** — NSec library: Ed25519 (signatures), X25519 (key agreement), ChaCha20-Poly1305 (AEAD). See `CryptoHelper.cs`, `OnionBuilder.cs`.
 
-6. **Storage** — `BlobStore` uses SHA-256 content addressing; `FileIngestor` chunks at 256 KiB.
+6. **Storage** — `BlobStore` uses SHA-256 content addressing and encrypts all blobs with ChaCha20-Poly1305 before writing to disk; `FileIngestor` chunks at 256 KiB.
+
+7. **XML Documentation** — All public APIs require triple-slash XML docs (`///`). Use single-line `<summary>` for classes (hover compatibility), detailed `<remarks>` for complex behavior, and `<param>`/`<returns>` tags for all parameters and return values. See `BlobStore.cs` for reference patterns.
 
 ## Key files to study
 

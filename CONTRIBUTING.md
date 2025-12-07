@@ -70,6 +70,30 @@ Test patterns used in the repo:
 
 - NSec is used for ed25519 (sign/verify) and X25519 (session keys). Keep identity keys and onion keys separate.
 
+### XML Documentation
+
+- All public classes, methods, properties, and constructors must have XML documentation comments (triple-slash `///`).
+- Class summaries: use single-line `<summary>` for hover tooltip compatibility.
+- Complex behavior: add `<remarks>` sections with implementation details, threading notes, and usage guidance.
+- Parameters: document all parameters with `<param>` tags, including validation rules and null handling.
+- Return values: use `<returns>` to describe what the method returns, including null/empty cases.
+- Examples: prefer concise, actionable descriptions over verbose explanations.
+
+Example pattern:
+
+```csharp
+/// <summary>
+/// Stores a blob using content-addressed storage with ChaCha20-Poly1305 encryption.
+/// </summary>
+/// <remarks>
+/// Writes are atomic: a temporary file is created and renamed on success.
+/// Concurrent writes for the same content are tolerated (idempotent).
+/// </remarks>
+/// <param name="data">The plaintext data to encrypt and store.</param>
+/// <returns>The SHA-256 content hash (32 bytes) used as the blob identifier.</returns>
+public async Task<byte[]> StoreAsync(ReadOnlyMemory<byte> data) { ... }
+```
+
 ## Adding a new worker
 
 1. Create a new file under `src/Workers/YourWorker.cs` implementing `BackgroundService`.

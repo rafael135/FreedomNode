@@ -92,7 +92,7 @@ Interactive `TerminalUi` commands:
 
 ## Storage
 
-- `BlobStore` persists blobs under `AppContext.BaseDirectory/data/blobs/` using the hex SHA-256 fingerprint as filename. Writes use a temporary file + atomic rename.
+- `BlobStore` persists blobs under `AppContext.BaseDirectory/data/blobs/` using the hex SHA-256 fingerprint as filename. All blobs are encrypted with ChaCha20-Poly1305 using the node's storage key before being written to disk. Writes use a temporary file + atomic rename.
 
 API notes (current implementation):
 
@@ -146,6 +146,12 @@ dotnet test tests/FreedomNode.Tests
 ```
 
 - Recommended extra tests: onion-layer round-trip, large-blob chunking, and integration tests that exercise QUIC when native runtimes are available.
+
+## Documentation standards
+
+- All public classes, methods, and properties have XML documentation comments (`///`) for IntelliSense and hover tooltips.
+- Class summaries are single-line for compatibility; detailed behavior is documented in `<remarks>` sections.
+- See `CONTRIBUTING.md` for XML documentation patterns and examples.
 
 ---
 

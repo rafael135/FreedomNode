@@ -3,6 +3,14 @@ using System.Runtime.InteropServices;
 
 namespace FalconNode.Core.Messages;
 
+/// <summary>
+/// Represents a fixed-size (136 bytes) handshake payload containing identity key, onion key, timestamp, and ed25519 signature.
+/// </summary>
+/// <remarks>
+/// Wire format: [IdentityKey (32)] [OnionKey (32)] [Timestamp (8)] [Signature (64)].
+/// Used during initial connection establishment to authenticate peers and exchange cryptographic keys.
+/// The signature covers the identity key, onion key, and timestamp to prove possession of the private key.
+/// </remarks>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public readonly struct HandshakePayload
 {

@@ -36,8 +36,9 @@ public class NodeLogicWorkerTests
         );
 
         var peerTable = new PeerTable();
-        var nodeSettings = new NodeSettings(NodeId.Random(), 40000);
-        var blobStore = new BlobStore(new NullLogger<BlobStore>());
+        var storageKey = Key.Create(AeadAlgorithm.ChaCha20Poly1305);
+        var nodeSettings = new NodeSettings(NodeId.Random(), 40000, storageKey);
+        var blobStore = new BlobStore(nodeSettings, new NullLogger<BlobStore>());
         var dhtService = new DhtService(
             new RoutingTable(nodeSettings),
             nodeSettings,
@@ -142,9 +143,10 @@ public class NodeLogicWorkerTests
 
         var peerTable = new PeerTable();
         var requestManager = new RequestManager();
-        var nodeSettings = new NodeSettings(NodeId.Random(), 40001);
+        var storageKey = Key.Create(AeadAlgorithm.ChaCha20Poly1305);
+        var nodeSettings = new NodeSettings(NodeId.Random(), 40001, storageKey);
         var routingTable = new RoutingTable(nodeSettings);
-        var blobStore = new BlobStore(new NullLogger<BlobStore>());
+        var blobStore = new BlobStore(nodeSettings, new NullLogger<BlobStore>());
         var dhtService = new DhtService(
             routingTable,
             nodeSettings,

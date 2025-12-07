@@ -68,6 +68,30 @@ Padrões de teste usados no repositório:
 
 - NSec: ed25519 para assinatura e X25519 para acordo de chaves. Mantenha chaves de identidade e chaves de onion separadas.
 
+### Documentação XML
+
+- Todas as classes, métodos, propriedades e construtores públicos devem ter comentários de documentação XML (triplo-barra `///`).
+- Summaries de classe: use `<summary>` de linha única para compatibilidade com tooltips hover.
+- Comportamento complexo: adicione seções `<remarks>` com detalhes de implementação, notas sobre threading e orientações de uso.
+- Parâmetros: documente todos os parâmetros com tags `<param>`, incluindo regras de validação e tratamento de nulos.
+- Valores de retorno: use `<returns>` para descrever o que o método retorna, incluindo casos null/vazio.
+- Exemplos: prefira descrições concisas e acionáveis em vez de explicações verbosas.
+
+Padrão de exemplo:
+
+```csharp
+/// <summary>
+/// Armazena um blob usando armazenamento content-addressed com criptografia ChaCha20-Poly1305.
+/// </summary>
+/// <remarks>
+/// Escritas são atômicas: um arquivo temporário é criado e renomeado em caso de sucesso.
+/// Escritas concurrent para o mesmo conteúdo são toleradas (idempotente).
+/// </remarks>
+/// <param name="data">Os dados em texto plano para criptografar e armazenar.</param>
+/// <returns>O hash SHA-256 do conteúdo (32 bytes) usado como identificador do blob.</returns>
+public async Task<byte[]> StoreAsync(ReadOnlyMemory<byte> data) { ... }
+```
+
 ## Como adicionar um novo worker
 
 1. Crie `src/Workers/YourWorker.cs` implementando `BackgroundService`.

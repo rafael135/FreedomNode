@@ -5,6 +5,9 @@ using FalconNode.Core.State;
 
 namespace FalconNode.Core.Dht;
 
+/// <summary>
+/// Represents a contact in the distributed hash table (DHT), containing node identification, endpoint, and last-seen metadata.
+/// </summary>
 public class Contact
 {
     /// <summary>
@@ -22,6 +25,11 @@ public class Contact
     /// </summary>
     public DateTime LastSeen { get; set; }
 
+    /// <summary>
+    /// Initializes a new contact with the specified node ID and endpoint, setting LastSeen to the current UTC time.
+    /// </summary>
+    /// <param name="id">The unique node identifier.</param>
+    /// <param name="endpoint">The network endpoint (IP address and port).</param>
     public Contact(NodeId id, IPEndPoint endpoint)
     {
         Id = id;
@@ -30,12 +38,25 @@ public class Contact
     }
 }
 
+/// <summary>
+/// Manages a Kademlia-style distributed hash table (DHT) routing table with 256 buckets for efficient peer discovery and distance-based routing.
+/// </summary>
+/// <remarks>
+/// The routing table maintains contacts organized into buckets based on XOR distance from the local node ID.
+/// Each bucket can hold up to K contacts (default 20). When a bucket is full, least recently seen contacts
+/// may be evicted in favor of more recently active nodes. The table uses 256 buckets to cover the full
+/// 256-bit address space, with bucket index determined by the number of leading zero bits in the XOR distance.
+/// </remarks>
 public class RoutingTable
 {
     private readonly NodeId _localNodeId;
     private readonly List<List<Contact>> _buckets;
     private const int K = 20; // Bucket size (base redundancy)
 
+    /// <summary>
+    /// Initializes a new routing table with 256 buckets for the specified local node.
+    /// </summary>
+    /// <param name="settings">Node settings containing the local node ID.</param>
     public RoutingTable(NodeSettings settings)
     {
         _localNodeId = settings.LocalNodeId;

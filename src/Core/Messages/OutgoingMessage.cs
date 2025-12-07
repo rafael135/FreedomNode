@@ -3,14 +3,13 @@ using System.Net;
 namespace FalconNode.Core.Messages;
 
 /// <summary>
-/// Represents an outgoing network message, including its target endpoint, payload, and a reference to the original buffer.
+/// Represents an outgoing network message, including its target endpoint, payload, and a reference to the original buffer for pool management.
 /// </summary>
-/// <param name="Target">The <see cref="IPEndPoint"/> representing the destination of the message.</param>
-/// <param name="Payload">The message payload as a <see cref="Memory{Byte}"/>.</param>
-/// <param name="OriginalBufferReference">A reference to the original byte buffer containing the message data. Used for buffer management and optimization.</param>
-/// <summary>
-/// Represents a message that is sent out from a node to another node in the network.
-/// </summary>
+/// <remarks>
+/// This struct encapsulates all data required to send a message over the network, including the destination
+/// endpoint and a reference to the pooled buffer that must be returned to <see cref="ArrayPool{T}.Shared"/>
+/// after transmission completes.
+/// </remarks>
 public readonly record struct OutgoingMessage
 {
     public readonly IPEndPoint Target;

@@ -104,9 +104,9 @@ public class FileIngestor
                 }
 
                 // 2. Isolate the exact chunk readed
-                // If the file has 300Kb
-                // Loop 1: Reads 256Kb. Slice 256Kb
-                // Loop 2: Reads 44Kb. Slice 44Kb
+                // If the file has 300 KiB
+                // Loop 1: Reads 256 KiB. Slice 256 KiB
+                // Loop 2: Reads 44 KiB. Slice 44 KiB
                 // OPTIMIZATION: Created a Slice (struct on stack), no new array allocation
                 ReadOnlyMemory<byte> chunkSlice = buffer.AsMemory(0, bytesRead);
 
