@@ -6,6 +6,7 @@ using FalconNode.Core.Dht;
 using FalconNode.Core.FS;
 using FalconNode.Core.Messages;
 using FalconNode.Core.Network;
+using FalconNode.Core.Social;
 using FalconNode.Workers;
 
 namespace FalconNode.UI;
@@ -42,6 +43,11 @@ public class TerminalUi
     private readonly DhtService _dhtService;
 
     /// <summary>
+    /// The profile manager for handling user profiles.
+    /// </summary>
+    private readonly ProfileManager _profileManager;
+
+    /// <summary>
     /// The channel writer for outgoing messages.
     /// </summary>
     private readonly ChannelWriter<OutgoingMessage> _outWriter;
@@ -56,6 +62,7 @@ public class TerminalUi
         FileIngestor ingestor,
         FileRetriever retriever,
         DhtService dhtService,
+        ProfileManager profileManager,
         Channel<OutgoingMessage> outChannel,
         IHostApplicationLifetime lifetime
     )
@@ -64,6 +71,7 @@ public class TerminalUi
         _ingestor = ingestor;
         _retriever = retriever;
         _dhtService = dhtService;
+        _profileManager = profileManager;
         _outWriter = outChannel.Writer;
         _lifetime = lifetime;
     }
@@ -75,13 +83,15 @@ public class TerminalUi
         Console.WriteLine("upload <text> - Upload text as a file to the network");
         Console.WriteLine("fetch <manifestHash> - Fetch a file by its manifest hash");
         Console.WriteLine("send-store <port> <text> - Send STORE packet to peer at port");
+        Console.WriteLine("profile - Show current profile root hash");
+        Console.WriteLine("post <text> - Publish a post to your profile");
         Console.WriteLine("exit - Gracefully shut down the node\n");
     }
 
     public async Task RunAsync()
     {
         Console.WriteLine(
-            "\n[Terminal UI Active] Type commands (connect, dht, upload, fetch, send-store, exit):"
+            "\n[Terminal UI Active] Type commands (connect, dht, upload, fetch, send-store, profile, post, exit):"
         );
         ShowDescription();
 
@@ -124,6 +134,16 @@ public class TerminalUi
 
                     case "send-store":
                         await HandleSendStore(input, parts);
+                        break;
+
+                    case "profile":
+                        Console.WriteLine(
+                            $"Current root profile hash: {_profileManager.CurrentProfileHash ?? "None"}"
+                        );
+                        break;
+
+                    case "post":
+                        await HandlePost(input);
                         break;
 
                     default:
@@ -241,5 +261,23 @@ public class TerminalUi
         await _outWriter.WriteAsync(outgoingMsg);
 
         Console.WriteLine($"STORE Packet sent to port {port}.");
+    }
+
+    private async Task HandlePost(string input)
+    {
+        if (input.Length < 6)
+        {
+            Console.WriteLine("Usage: post <text>");
+            return;
+        }
+        string text = input.Substring(5);
+
+        Console.WriteLine("Publishing post...");
+        string newRoot = await _profileManager.PublishPostAsync(text);
+
+        Console.ForegroundColor = ConsoleColor.Magenta;
+        Console.WriteLine($"[SOCIAL] Post published with success!");
+        Console.WriteLine($"New state root profile hash: {newRoot}");
+        Console.ResetColor();
     }
 }

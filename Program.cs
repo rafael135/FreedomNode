@@ -4,6 +4,7 @@ using FalconNode.Core.Dht;
 using FalconNode.Core.FS;
 using FalconNode.Core.Messages;
 using FalconNode.Core.Network;
+using FalconNode.Core.Social;
 using FalconNode.Core.State;
 using FalconNode.Core.Storage;
 using FalconNode.UI;
@@ -113,6 +114,9 @@ builder.Services.AddSingleton<DhtService>();
 builder.Services.AddSingleton<BlobStore>();
 builder.Services.AddSingleton<FileIngestor>();
 builder.Services.AddSingleton<FileRetriever>();
+
+// Social/Profile Management
+builder.Services.AddSingleton<ProfileManager>();
 
 // Workers
 builder.Services.AddHostedService<QuicListenerWorker>();
