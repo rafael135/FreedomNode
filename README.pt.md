@@ -120,6 +120,20 @@ cmake --build .
 sudo cmake --install .
 ```
 
+### Verificando a instalação
+
+Após instalar o msquic, você pode verificar a instalação checando se a biblioteca está disponível:
+
+```bash
+# Verificar se o arquivo da biblioteca existe (localização pode variar por distribuição)
+ldconfig -p | grep msquic
+
+# Deve mostrar algo como:
+# libmsquic.so.2 (libc6,x86-64) => /usr/lib/x86_64-linux-gnu/libmsquic.so.2
+```
+
+**Importante**: FreedomNode requer a **biblioteca MsQuic versão 2**. Se você tiver uma versão mais antiga instalada, pode ser necessário atualizá-la.
+
 **Nota para desenvolvedores**: No Windows e macOS, as bibliotecas nativas QUIC são incluídas com o .NET SDK e não requerem instalação separada.
 
 ## Como executar (dev)

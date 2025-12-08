@@ -32,13 +32,15 @@ public class BlobStoreTests : IDisposable
     {
         byte[] data = Encoding.UTF8.GetBytes("hello blob store test");
 
+        // Small delay to avoid potential filename collisions in quick test runs
+        await Task.Delay(50);
         byte[] hash = await _store.StoreAsync(data);
 
         // Ensure file exists
         string filename = Path.Combine(_baseDir, Convert.ToHexString(hash).ToLowerInvariant());
         Assert.True(File.Exists(filename));
 
-            var retrieved = await _store.RetrieveBytesAsync(hash);
+        byte[]? retrieved = await _store.RetrieveBytesAsync(hash);
         Assert.NotNull(retrieved);
         Assert.Equal(data, retrieved);
     }
