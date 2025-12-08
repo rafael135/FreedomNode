@@ -51,6 +51,79 @@ This node is intended to serve as the infrastructure foundation for a decentrali
 - KDF: HKDF-SHA256
 - AEAD: ChaCha20-Poly1305 (onion layers)
 
+## Linux requirements (important)
+
+**QUIC native library dependency**: FreedomNode uses QUIC for network transport, which requires the `msquic` native library. **This library is NOT included by default with the .NET SDK on Linux** and must be installed separately.
+
+### Symptoms of missing msquic
+
+If you try to run the application without msquic installed, you'll see an error during QUIC listener initialization, typically:
+
+```
+Error in QUIC Listener Worker.
+
+System.PlatformNotSupportedException: System.Net.Quic is not supported on this platform: 
+Unable to load MsQuic library version '2'. For more information see: 
+https://learn.microsoft.com/dotnet/fundamentals/networking/quic/quic-overview#platform-dependencies
+
+at System.Net.Quic.QuicListener.ListenAsync(QuicListenerOptions options, CancellationToken cancellationToken)
+```
+
+### Installation by distribution
+
+**Arch Linux / Manjaro:**
+```bash
+yay -S msquic
+# or using paru
+paru -S msquic
+```
+
+**Ubuntu / Debian:**
+
+The msquic library is available through Microsoft's package repository:
+
+```bash
+# Add Microsoft package repository
+wget https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
+sudo dpkg -i packages-microsoft-prod.deb
+rm packages-microsoft-prod.deb
+
+# Update and install
+sudo apt update
+sudo apt install libmsquic
+```
+
+For Debian, replace `ubuntu/$(lsb_release -rs)` with the appropriate Debian version (e.g., `debian/11` for Debian 11).
+
+**Fedora / RHEL / CentOS:**
+```bash
+# Add Microsoft repository
+sudo rpm -Uvh https://packages.microsoft.com/config/fedora/$(rpm -E %fedora)/packages-microsoft-prod.rpm
+
+# Install msquic
+sudo dnf install libmsquic
+```
+
+**Building from source (any distribution):**
+
+If your distribution doesn't have msquic in its repositories:
+
+```bash
+# Clone the repository
+git clone --recursive https://github.com/microsoft/msquic.git
+cd msquic
+
+# Build (requires cmake, build-essential/base-devel)
+mkdir build && cd build
+cmake -G 'Unix Makefiles' ..
+cmake --build .
+
+# Install system-wide
+sudo cmake --install .
+```
+
+**Note for developers**: On Windows and macOS, the QUIC native libraries are bundled with the .NET SDK and don't require separate installation.
+
 ## How to run (development)
 
 - Build (requires .NET 10 SDK):
