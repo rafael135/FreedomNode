@@ -133,6 +133,9 @@ public class BlobStore
 
         byte[] encryptedBuffer = ArrayPool<byte>.Shared.Rent(encryptedSize);
 
+        // The .tmp suffix ensures that incomplete writes are not mistaken for complete files if the node crashes during write.
+        string tempPath = filePath + ".tmp";
+
         try
         {
             Span<byte> nonceSpan = encryptedBuffer.AsSpan(0, _algorithm.NonceSize);
@@ -150,9 +153,6 @@ public class BlobStore
             );
 
             // 3. Save to disk (Atomic, if possible)
-            // The .tmp suffix ensures that incomplete writes are not mistaken for complete files if the node crashes during write.
-            string tempPath = filePath + ".tmp";
-
             // Use FileStream directly with ReadOnlyMemory to avoid array copying
             await using (
                 var fs = new FileStream(
@@ -173,9 +173,32 @@ public class BlobStore
                 $"Stored blob with hash {hashString} at {filePath}, with size {data.Length} bytes."
             );
         }
-        catch (IOException)
+        catch (IOException ex)
         {
-            // Race condition: Someone stored the same blob milliseconds ago. Ignore.
+            if (File.Exists(filePath))
+            {
+                // Ok, it was a race condition: another process/thread created the file
+                // between our initial check and now. The work is done.
+                _logger.LogDebug($"Race condition handled for {hashString}");
+                return hashResult;
+            }
+
+            // If the final file does NOT exist, then the Move failed for another reason
+            // (e.g., lock on .tmp, disk full, permission error).
+            // DO NOT SWALLOW THIS ERROR. Rethrow to know the system failed.
+            _logger.LogError(
+                ex,
+                $"Failed to move temp file for blob {hashString}. Destination missing."
+            );
+
+            // Attempt to clean up the junk (.tmp) if possible, to avoid filling the disk
+            try
+            {
+                File.Delete(tempPath);
+            }
+            catch { }
+
+            throw;
         }
         finally
         {

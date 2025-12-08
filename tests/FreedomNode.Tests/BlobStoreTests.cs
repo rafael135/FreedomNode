@@ -32,8 +32,6 @@ public class BlobStoreTests : IDisposable
     {
         byte[] data = Encoding.UTF8.GetBytes("hello blob store test");
 
-        // Small delay to avoid potential filename collisions in quick test runs
-        await Task.Delay(50);
         byte[] hash = await _store.StoreAsync(data);
 
         // Ensure file exists
