@@ -1,0 +1,5 @@
+{
+    "rust-analyzer.linkedProjects": [
+        "./native/freedom_core/Cargo.toml"
+    ]
+}
