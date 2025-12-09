@@ -1,4 +1,4 @@
-use ed25519_dalek::{ Signer, Verifier, Signature };
+use ed25519_dalek::{ Verifier, Signature };
 use x25519_dalek::{ PublicKey as X25519PublicKey };
 use std::convert::TryInto;
 
