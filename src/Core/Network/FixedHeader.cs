@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.IO.Hashing;
 using System.Runtime.InteropServices;
 
 namespace FalconNode.Core.Network;
@@ -27,7 +28,7 @@ public readonly struct FixedHeader
     public readonly uint PayloadLength; // Length of payload in bytes
     public readonly uint Checksum; // CRC32 checksum of payload
 
-    public FixedHeader(byte type, uint reqId, uint payloadLength)
+    public FixedHeader(byte type, uint reqId, uint payloadLength, uint checksum)
     {
         Version = 1;
         Flags = 0;
@@ -35,7 +36,7 @@ public readonly struct FixedHeader
         Reserved = 0;
         RequestId = reqId;
         PayloadLength = payloadLength;
-        Checksum = 0; // Calculate later
+        Checksum = checksum;
     }
 
     private FixedHeader(
@@ -89,5 +90,11 @@ public readonly struct FixedHeader
             BinaryPrimitives.ReadUInt32BigEndian(source.Slice(8, 4)),
             BinaryPrimitives.ReadUInt32BigEndian(source.Slice(12, 4))
         );
+    }
+
+    public static FixedHeader Create(byte type, uint requestId, ReadOnlySpan<byte> payload)
+    {
+        uint checksum = Crc32.HashToUInt32(payload);
+        return new FixedHeader(type, requestId, (uint)payload.Length, checksum);
     }
 }

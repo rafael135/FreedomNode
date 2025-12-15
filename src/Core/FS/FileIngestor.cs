@@ -193,7 +193,7 @@ public class FileIngestor
         byte[] buffer = ArrayPool<byte>.Shared.Rent(packetSize);
 
         // Header 0x05 (STORE)
-        new FixedHeader(0x05, 0, (uint)data.Length).WriteToSpan(buffer.AsSpan(0, FixedHeader.Size));
+        FixedHeader.Create(0x05, 0, data).WriteToSpan(buffer.AsSpan(0, FixedHeader.Size));
 
         // Payload
         data.CopyTo(buffer.AsSpan(FixedHeader.Size));

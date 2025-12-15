@@ -16,6 +16,7 @@
     <PackageReference Include="MemoryPack" Version="1.21.4" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.0" />
     <PackageReference Include="NSec.Cryptography" Version="25.4.0" />
+    <PackageReference Include="System.IO.Hashing" Version="10.0.1" />
   </ItemGroup>
 
   <!-- Exclude test files (tests/) from default SDK globbing so the main app doesn't compile test code

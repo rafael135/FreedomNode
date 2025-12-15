@@ -191,12 +191,13 @@ public class NodeLogicWorkerTests
         try
         {
             // Write header (0x03 = FIND_NODE request)
-            new FixedHeader(0x03, 0, (uint)reqPayload.Length).WriteToSpan(
-                buffer.AsSpan(0, FixedHeader.Size)
-            );
+            FixedHeader
+                .Create(0x03, 0, reqPayload)
+                .WriteToSpan(buffer.AsSpan(0, FixedHeader.Size));
+
             reqPayload.CopyTo(buffer.AsSpan(FixedHeader.Size));
 
-            var pkt = new NetworkPacket(
+            NetworkPacket pkt = new NetworkPacket(
                 new IPEndPoint(IPAddress.Loopback, 40000),
                 0x03,
                 0,
@@ -210,12 +211,12 @@ public class NodeLogicWorkerTests
             await Task.Delay(300);
 
             // Try read outgoing
-            bool found = outChannel.Reader.TryRead(out var outMsg);
+            bool found = outChannel.Reader.TryRead(out OutgoingMessage outMsg);
             Assert.True(found, "Expected a response to be sent on outgoing channel");
 
             // The response header should be 0x04 (FindNode response)
-            var headerSpan = outMsg.Payload.Span.Slice(0, FixedHeader.Size);
-            var respHeader = FixedHeader.ReadFromSpan(headerSpan);
+            Span<byte> headerSpan = outMsg.Payload.Span.Slice(0, FixedHeader.Size);
+            FixedHeader respHeader = FixedHeader.ReadFromSpan(headerSpan);
             Assert.Equal((byte)0x04, respHeader.MessageType);
         }
         finally

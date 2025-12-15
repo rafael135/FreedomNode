@@ -246,9 +246,7 @@ public class TerminalUi
         byte[] buffer = ArrayPool<byte>.Shared.Rent(packetSize);
 
         // Manually build the STORE packet (0x05)
-        new FixedHeader(0x05, 123, (uint)rawData.Length).WriteToSpan(
-            buffer.AsSpan(0, FixedHeader.Size)
-        );
+        FixedHeader.Create(0x05, 123, rawData).WriteToSpan(buffer.AsSpan(0, FixedHeader.Size));
         rawData.CopyTo(buffer.AsSpan(FixedHeader.Size));
 
         // Fix: Enveloping the arguments into the OutgoingMessage object
