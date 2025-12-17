@@ -1,16 +1,16 @@
 use crate::crypto::helper;
 use crate::crypto::handshake::HandshakePayload;
-use std::os::linux::raw;
 use std::slice;
-use std::ptr;
 
 
 /// Helper to convert raw pointer and length to a byte slice.
+/// # Safety
+/// - `ptr` must be a valid pointer to a byte array of length `len`.
 unsafe fn raw_to_slice<'a>(ptr: *const u8, len: usize) -> &'a [u8] {
     if ptr.is_null() || len == 0 {
         &[]
     } else {
-        slice::from_raw_parts(ptr, len)
+        unsafe { slice::from_raw_parts(ptr, len) }
     }
 }
 
@@ -20,7 +20,7 @@ unsafe fn write_to_buffer(ptr: *mut u8, len: usize, data: &[u8]) -> i32 {
         return -1;
     }
 
-    let output = slice::from_raw_parts_mut(ptr, len);
+    let output = unsafe { slice::from_raw_parts_mut(ptr, len) };
     output[..data.len()].copy_from_slice(data);
     data.len() as i32
 }
@@ -40,8 +40,8 @@ pub unsafe extern "C" fn ffi_create_session_key(
     other_public_key_ptr: *const u8, // 32 bytes
     output_ptr: *mut u8, // 32 bytes Buffer to write the session key
 ) -> i32 {
-    let my_private_bytes = raw_to_slice(my_private_key_ptr, 32);
-    let other_public_bytes = raw_to_slice(other_public_key_ptr, 32);
+    let my_private_bytes = unsafe { raw_to_slice(my_private_key_ptr, 32) };
+    let other_public_bytes = unsafe { raw_to_slice(other_public_key_ptr, 32) };
 
     let my_secret = match x25519_dalek::StaticSecret::from(<[u8; 32]>::try_from(my_private_bytes).unwrap()) {
         secret => secret,
@@ -53,7 +53,7 @@ pub unsafe extern "C" fn ffi_create_session_key(
     let session_key = helper::create_session_key(&my_secret, &other_public);
 
     if output_ptr.is_null() { return -1; }
-    let output_slice = slice::from_raw_parts_mut(output_ptr, 32);
+    let output_slice = unsafe { slice::from_raw_parts_mut(output_ptr, 32) };
     output_slice.copy_from_slice(&session_key);
 
     1 // Success
@@ -69,7 +69,7 @@ pub unsafe extern "C" fn ffi_validate_handshake(
     data_ptr: *const u8,
     len: usize,
 ) -> i32 {
-    let data = raw_to_slice(data_ptr, len);
+    let data = unsafe { raw_to_slice(data_ptr, len) };
 
     match HandshakePayload::from_bytes(data) {
         Ok(payload) => {
