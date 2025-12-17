@@ -109,3 +109,55 @@ pub unsafe extern "C" fn ffi_encrypt_layer(
         Err(_) => -1,
     }
 }
+
+/// Decrypts data using ChaCha20-Poly1305.
+/// # Safety
+/// - `key_ptr` must point to a valid 32-byte array.
+/// - `ciphertext_ptr` must point to a valid byte array of length `ciphertext_len`.
+/// - `output_ptr` must point to a valid buffer with capacity `output_cap`.
+/// Returns the number of bytes written to `output_ptr`, or -1 on error.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ffi_decrypt_layer(
+    key_ptr: *const u8, // 32 bytes
+    ciphertext_ptr: *const u8, // Encrypted data
+    ciphertext_len: usize,
+    output_ptr: *mut u8, // Buffer to write decrypted data
+    output_cap: usize, // Capacity of output buffer
+) -> i32 {
+    let key_bytes = unsafe { raw_to_slice(key_ptr, 32) };
+    let ciphertext = unsafe { raw_to_slice(ciphertext_ptr, ciphertext_len) };
+
+    
+    if key_bytes.len() != 32 {
+        return -2; // Invalid key length
+    }
+
+    let key_array: [u8; 32] = key_bytes.try_into().unwrap();
+
+    match helper::try_decrypt_layer(&key_array, ciphertext) {
+        Ok(decrypted_data) => {
+            unsafe { write_to_buffer(output_ptr, output_cap, &decrypted_data) }
+        },
+        Err(_) => -1,
+    }
+}
+
+
+// ==================================================================================
+// PROTOCOL EXPORTS (CRC32 Check)
+// ==================================================================================
+
+/// Calculates CRC32 for a byte array using the fast hardware implementation.
+/// # Safety
+/// - `data_ptr` must point to a valid byte array of length `len`.
+/// Returns the CRC32 checksum.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ffi_calculate_crc32(
+    data_ptr: *const u8,
+    len: usize,
+) -> u32 {
+    let data = unsafe { raw_to_slice(data_ptr, len) };
+    let mut hasher = crc32fast::Hasher::new();
+    hasher.update(data);
+    hasher.finalize()
+}
