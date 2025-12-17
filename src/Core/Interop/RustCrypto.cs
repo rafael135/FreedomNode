@@ -75,7 +75,7 @@ public static class RustCrypto
     /// <param name="len">The length of the data.</param>
     /// <returns>The CRC32 checksum as an unsigned integer.</returns>
     [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-    private static extern unsafe nuint ffi_calculate_crc32(byte* data, nuint len);
+    private static extern unsafe uint ffi_calculate_crc32(byte* data, nuint len);
 
     // --- SAFE WRAPPERS ---
 
