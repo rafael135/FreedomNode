@@ -78,7 +78,8 @@ jobs:
           -c Release \
           -r ${{ matrix.rid }} \
           --self-contained true \
-          -p:PublishSingleFile=false \
+          -p:PublishSingleFile=true \
+          -p:IncludeNativeLibrariesForSelfExtract=true \
           -o ./publish
 
       # 5. Sanity Check (Optional)
