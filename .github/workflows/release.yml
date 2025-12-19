@@ -72,6 +72,7 @@ jobs:
       # 4. Publish (Hybrid C# + Rust Build)
       # The parameter -p:PublishSingleFile=false is important to keep the .dll/.so accessible alongside the executable
       - name: Publish Binary
+        shell: bash
         run: |
           dotnet publish FalconNode.csproj \
           -c Release \
