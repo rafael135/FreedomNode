@@ -93,7 +93,7 @@ public class FileRetriever
             throw new FileNotFoundException("Manifest not found in blob store", manifestHashString);
         }
 
-        FileManifest? manifest = JsonSerializer.Deserialize<FileManifest>(manifestBytes);
+        FileManifest? manifest = JsonSerializer.Deserialize(manifestBytes, FreedomNodeJsonContext.Default.FileManifest);
         if (manifest == null)
         {
             throw new InvalidDataException("Failed to deserialize file manifest");

@@ -185,7 +185,7 @@ public class ProfileManager
 
         try
         {
-            return JsonSerializer.Deserialize<UserProfile>(data);
+            return JsonSerializer.Deserialize(data, FreedomNodeJsonContext.Default.UserProfile);
         }
         catch
         {
