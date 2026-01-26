@@ -93,7 +93,7 @@ public class FileRetriever
             throw new FileNotFoundException("Manifest not found in blob store", manifestHashString);
         }
 
-        FileManifest? manifest = JsonSerializer.Deserialize<FileManifest>(manifestBytes);
+        FileManifest? manifest = JsonSerializer.Deserialize(manifestBytes, FreedomNodeJsonContext.Default.FileManifest);
         if (manifest == null)
         {
             throw new InvalidDataException("Failed to deserialize file manifest");
@@ -162,7 +162,7 @@ public class FileRetriever
         {
             try
             {
-                var data = await FetchFromNodeAsync(contact.Endpoint, hash);
+                byte[]? data = await FetchFromNodeAsync(contact.Endpoint, hash);
                 if (data != null)
                 {
                     await _blobStore.StoreAsync(data); // Cache locally
@@ -192,26 +192,45 @@ public class FileRetriever
         int packetSize = FixedHeader.Size + 32;
         byte[] buffer = ArrayPool<byte>.Shared.Rent(packetSize);
 
-        new FixedHeader(0x07, requestId, 32).WriteToSpan(buffer.AsSpan(0, FixedHeader.Size));
-        hash.CopyTo(buffer.AsSpan(FixedHeader.Size));
-
-        Task<NetworkPacket> task = _requestManager.RegisterRequestAsync(
-            requestId,
-            TimeSpan.FromSeconds(5)
-        );
-
-        await _outWriter.WriteAsync(
-            new OutgoingMessage(target, buffer.AsMemory(0, packetSize), buffer)
-        );
-
-        NetworkPacket response = await task;
-
-        // 0x08 = FETCH_RES
-        if (response.MessageType == 0x08)
+        try
         {
-            return response.Payload.ToArray();
-        }
+            hash.CopyTo(buffer.AsSpan(FixedHeader.Size));
 
-        throw new Exception("Invalid response message type");
+            Span<byte> payloadSpan = buffer.AsSpan(FixedHeader.Size, 32);
+
+            // Create Header with CRC32
+            FixedHeader header = FixedHeader.Create(0x07, requestId, payloadSpan);
+
+            // Write Header
+            header.WriteToSpan(buffer.AsSpan(0, FixedHeader.Size));
+
+            Task<NetworkPacket> task = _requestManager.RegisterRequestAsync(
+                requestId,
+                TimeSpan.FromSeconds(5)
+            );
+
+            await _outWriter.WriteAsync(
+                new OutgoingMessage(target, buffer.AsMemory(0, packetSize), buffer)
+            );
+
+            NetworkPacket response = await task;
+
+            // 0x08 = FETCH_RES
+            if (response.MessageType == 0x08)
+            {
+                return response.Payload.ToArray();
+            }
+
+            throw new Exception("Invalid response message type");
+        }
+        catch
+        {
+            // Important: Return buffer to pool if something fails before sending
+            // Note: If write succeeds, OutgoingMessage handles the buffer return?
+            // In your current architecture, the ConnectionManagerWorker seems to handle return after send.
+            // But if we throw here (e.g. RegisterRequestAsync fails), we must return it.
+            ArrayPool<byte>.Shared.Return(buffer);
+            throw;
+        }
     }
 }

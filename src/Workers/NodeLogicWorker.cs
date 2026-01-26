@@ -205,21 +205,41 @@ public class NodeLogicWorker : BackgroundService
         int totalSize = FixedHeader.Size + payload.Length;
         byte[] buffer = ArrayPool<byte>.Shared.Rent(totalSize);
 
-        new FixedHeader(messageType, requestId, (uint)payload.Length).WriteToSpan(
-            buffer.AsSpan(0, FixedHeader.Size)
-        );
+        try
+        {
+            // REFACTOR: Write payload first to calculate checksum
+            payload.CopyTo(buffer.AsSpan(FixedHeader.Size));
 
-        payload.CopyTo(buffer.AsSpan(FixedHeader.Size));
+            Span<byte> payloadSpan = buffer.AsSpan(FixedHeader.Size, payload.Length);
 
-        // 2. Register the request and wait for response
-        var responseTask = _requestManager.RegisterRequestAsync(requestId, TimeSpan.FromSeconds(5));
+            // Create Header (internally calculates CRC32 from payloadSpan)
+            FixedHeader header = FixedHeader.Create(messageType, requestId, payloadSpan);
 
-        // 3. Send the packet
-        var message = new OutgoingMessage(target, buffer.AsMemory(0, totalSize), buffer);
-        await _outgoingWriter.WriteAsync(message);
+            // Write header to the beginning of the buffer
+            header.WriteToSpan(buffer.AsSpan(0, FixedHeader.Size));
 
-        // 4. Await the response
-        return await responseTask;
+            // 2. Register the request and wait for response
+            Task<NetworkPacket> responseTask = _requestManager.RegisterRequestAsync(
+                requestId,
+                TimeSpan.FromSeconds(5)
+            );
+
+            // 3. Send the packet
+            OutgoingMessage message = new OutgoingMessage(
+                target,
+                buffer.AsMemory(0, totalSize),
+                buffer
+            );
+            await _outgoingWriter.WriteAsync(message);
+
+            // 4. Await the response
+            return await responseTask;
+        }
+        catch
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+            throw;
+        }
     }
 
     /// <summary>
@@ -245,13 +265,16 @@ public class NodeLogicWorker : BackgroundService
 
             byte[] responseBuffer = ArrayPool<byte>.Shared.Rent(totalSize);
 
-            // Write Header
-            new FixedHeader(0x06, packet.RequestId, (uint)responsePayloadSize).WriteToSpan(
-                responseBuffer.AsSpan(0, FixedHeader.Size)
-            );
-
-            // Write Payload (Hash)
+            // REFACTOR: Write Payload first (Hash)
             hash.CopyTo(responseBuffer.AsSpan(FixedHeader.Size));
+
+            var payloadSpan = responseBuffer.AsSpan(FixedHeader.Size, responsePayloadSize);
+
+            // Create Header with CRC32
+            var header = FixedHeader.Create(0x06, packet.RequestId, payloadSpan);
+
+            // Write Header
+            header.WriteToSpan(responseBuffer.AsSpan(0, FixedHeader.Size));
 
             // 3. Send Response
             _outgoingWriter.TryWrite(
@@ -319,13 +342,9 @@ public class NodeLogicWorker : BackgroundService
 
             try
             {
-                // 4. Write Header
-                new FixedHeader(0x08, packet.RequestId, (uint)dataLen).WriteToSpan(
-                    packetBuffer.AsSpan(0, FixedHeader.Size)
-                );
-
                 // 5. Retrieve blob data directly into the response buffer
                 // Optimization: Avoids extra allocation by writing directly to the rented buffer
+                // REFACTOR: We write payload first to calculate CRC
                 Memory<byte> dataWindow = packetBuffer.AsMemory(FixedHeader.Size, dataLen);
 
                 // Retrieve the blob data into the allocated window
@@ -338,6 +357,10 @@ public class NodeLogicWorker : BackgroundService
                     );
                     return;
                 }
+
+                // REFACTOR: Create Header with CRC32 after payload is in place
+                FixedHeader header = FixedHeader.Create(0x08, packet.RequestId, dataWindow.Span);
+                header.WriteToSpan(packetBuffer.AsSpan(0, FixedHeader.Size));
 
                 // 6. Send Response
                 _outgoingWriter.TryWrite(
@@ -400,7 +423,7 @@ public class NodeLogicWorker : BackgroundService
         Span<byte> payloadSpan = packet.Payload.Span;
         HandshakePayload handshake = HandshakePayload.ReadFromSpan(payloadSpan);
 
-        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         if (Math.Abs(now - (long)handshake.Timestamp) > 60000) // 1 minute tolerance
         {
             _logger.LogWarning("Handshake timestamp is too far from current time.");
@@ -452,7 +475,7 @@ public class NodeLogicWorker : BackgroundService
     /// <returns>An outgoing message containing the handshake payload.</returns>
     public OutgoingMessage CreateHandshakeMessage(IPEndPoint target)
     {
-        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
         // 1. Prepare Data
         byte[] identityBytes = _myIdentityKey.Export(KeyBlobFormat.RawPublicKey);
@@ -468,15 +491,36 @@ public class NodeLogicWorker : BackgroundService
         int totalSize = FixedHeader.Size + HandshakePayload.Size;
         byte[] packetBuffer = ArrayPool<byte>.Shared.Rent(totalSize);
 
-        // Write the Header
-        var header = new FixedHeader(0x01, 0, (uint)HandshakePayload.Size); // 0x01 = Handshake Type
-        header.WriteToSpan(packetBuffer.AsSpan(0, FixedHeader.Size));
+        try
+        {
+            // REFACTOR: Write payload first
+            Span<byte> payloadSpan = packetBuffer.AsSpan(FixedHeader.Size);
+            HandshakePayload payload = new HandshakePayload(
+                identityBytes,
+                onionBytes,
+                (ulong)now,
+                signature
+            );
+            payload.WriteToSpan(payloadSpan);
 
-        // Write the Payload
-        var payload = new HandshakePayload(identityBytes, onionBytes, (ulong)now, signature);
-        payload.WriteToSpan(packetBuffer.AsSpan(FixedHeader.Size));
+            Span<byte> actualPayloadSpan = packetBuffer.AsSpan(
+                FixedHeader.Size,
+                HandshakePayload.Size
+            );
 
-        return new OutgoingMessage(target, packetBuffer.AsMemory(0, totalSize), packetBuffer);
+            // 4. Create Header with CRC32 of PAYLOAD
+            FixedHeader header = FixedHeader.Create(0x01, 0, actualPayloadSpan);
+
+            // 5. Write Header
+            header.WriteToSpan(packetBuffer.AsSpan(0, FixedHeader.Size));
+
+            return new OutgoingMessage(target, packetBuffer.AsMemory(0, totalSize), packetBuffer);
+        }
+        catch
+        {
+            ArrayPool<byte>.Shared.Return(packetBuffer);
+            throw;
+        }
     }
 
     /// <summary>
@@ -495,14 +539,14 @@ public class NodeLogicWorker : BackgroundService
         if (packet.Payload.Length < 32)
             return false;
 
-        var request = FindNodeRequest.ReadFromSpan(packet.Payload.Span);
+        FindNodeRequest request = FindNodeRequest.ReadFromSpan(packet.Payload.Span);
 
         _logger.LogInformation($"DHT: Received FindNode request for NodeId: {request.TargetId}");
 
-        if (_peerTable.TryGetPeerKey(packet.Origin, out var originKey))
+        if (_peerTable.TryGetPeerKey(packet.Origin, out byte[]? originKey))
         {
             // Example of deriving NodeId from peer's onion key (in real app, use Hash)
-            var originNodeId = new NodeId(SHA256.HashData(originKey));
+            NodeId originNodeId = new NodeId(SHA256.HashData(originKey));
             _routingTable.AddContact(new Contact(originNodeId, packet.Origin));
         }
 
@@ -520,12 +564,16 @@ public class NodeLogicWorker : BackgroundService
         // Header + Payload
         byte[] packetBuffer = ArrayPool<byte>.Shared.Rent(FixedHeader.Size + responseSize);
 
-        // Header (0x04 = FIND_NODE_RES)
-        var header = new FixedHeader(0x04, packet.RequestId, (uint)responseSize);
-        header.WriteToSpan(packetBuffer.AsSpan(0, FixedHeader.Size));
-
-        // Payload
+        // REFACTOR: Write payload first
         response.WriteToSpan(packetBuffer.AsSpan(FixedHeader.Size));
+
+        Span<byte> payloadSpan = packetBuffer.AsSpan(FixedHeader.Size, responseSize);
+
+        // Create Header (0x04 = FIND_NODE_RES) with CRC
+        FixedHeader header = FixedHeader.Create(0x04, packet.RequestId, payloadSpan);
+
+        // Write Header
+        header.WriteToSpan(packetBuffer.AsSpan(0, FixedHeader.Size));
 
         // Send response back to requester
         OutgoingMessage outgoingMessage = new OutgoingMessage(
@@ -551,7 +599,7 @@ public class NodeLogicWorker : BackgroundService
     /// </returns>
     private bool HandleOnionRoute(NetworkPacket packet)
     {
-        var payloadSpan = packet.Payload.Span;
+        Span<byte> payloadSpan = packet.Payload.Span;
 
         // 32 Bytes for the key agreement public key + 28 Bytes for Ciphertext overhead
         if (payloadSpan.Length < 32 + 28)
@@ -559,8 +607,8 @@ public class NodeLogicWorker : BackgroundService
             return false;
         }
 
-        var senderEphemeralKeyBytes = payloadSpan.Slice(0, 32);
-        var encryptedOnionLayer = payloadSpan.Slice(32);
+        Span<byte> senderEphemeralKeyBytes = payloadSpan.Slice(0, 32);
+        Span<byte> encryptedOnionLayer = payloadSpan.Slice(32);
 
         try
         {
@@ -654,12 +702,16 @@ public class NodeLogicWorker : BackgroundService
             int totalPacketSize = FixedHeader.Size + nextPayload.Length;
             byte[] packetBuffer = ArrayPool<byte>.Shared.Rent(totalPacketSize);
 
-            // Build Onion Data Header (0x02)
-            var header = new FixedHeader(0x02, 0, (uint)nextPayload.Length);
-            header.WriteToSpan(packetBuffer.AsSpan(0, FixedHeader.Size));
-
-            // Copy the remaining payload
+            // REFACTOR: Write payload first (nextPayload)
             nextPayload.CopyTo(packetBuffer.AsSpan(FixedHeader.Size));
+
+            Span<byte> payloadSpan = packetBuffer.AsSpan(FixedHeader.Size, nextPayload.Length);
+
+            // Build Onion Data Header (0x02) with CRC
+            FixedHeader header = FixedHeader.Create(0x02, 0, payloadSpan);
+
+            // Write Header
+            header.WriteToSpan(packetBuffer.AsSpan(0, FixedHeader.Size));
 
             OutgoingMessage outgoingMessage = new OutgoingMessage(
                 nextHopEndpoint,

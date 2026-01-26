@@ -1,0 +1,113 @@
+name: Release Deploy
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build for ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          # Linux Configuration
+          - os: ubuntu-latest
+            rid: linux-x64
+            artifact_name: FreedomNode-linux-x64
+            # Native library extension (for verification only)
+            native_ext: .so
+          
+          # Windows Configuration
+          - os: windows-latest
+            rid: win-x64
+            artifact_name: FreedomNode-win-x64
+            native_ext: .dll
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+            fetch-depth: 0  # Fetch all history for accurate tags and branch info
+
+      - name: Verify tag is on main branch
+        shell: bash
+        run: |
+          git fetch origin main
+          # Check if the current HEAD (tag) is an ancestor of origin/main
+          if git merge-base --is-ancestor HEAD origin/main; then
+            echo "Tag is on main branch. Continuing..."
+          else
+            echo "::error::Tag is not on main branch. Aborting release."
+            exit 1
+          fi
+    
+      # 1. Setup Rust
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      # 2. Setup .NET 10 (As per your ci.yml)
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      # 3. Install native Linux dependencies (libmsquic)
+      # Required for build/test not to fail when linking native resources
+      - name: Install Linux Dependencies (msquic)
+        if: runner.os == 'Linux'
+        run: |
+          wget https://packages.microsoft.com/config/ubuntu/22.04/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
+          sudo dpkg -i packages-microsoft-prod.deb
+          rm packages-microsoft-prod.deb
+          sudo apt-get update
+          sudo apt-get install -y libmsquic
+
+      # 4. Publish (Hybrid C# + Rust Build)
+      # The parameter -p:PublishSingleFile=false is important to keep the .dll/.so accessible alongside the executable
+      - name: Publish Binary
+        shell: bash
+        run: |
+          dotnet publish FalconNode.csproj \
+          -c Release \
+          -r ${{ matrix.rid }} \
+          --self-contained true \
+          -p:PublishSingleFile=true \
+          -p:IncludeNativeLibrariesForSelfExtract=true \
+          -o ./publish
+
+      # 5. Sanity Check (Optional)
+      # Ensures the Rust lib was actually copied to the final folder
+      - name: Verify Native Lib Existence
+        shell: bash
+        run: |
+          if [ -f "./publish/libfreedom_core${{ matrix.native_ext }}" ] || [ -f "./publish/freedom_core${{ matrix.native_ext }}" ]; then
+            echo "Native library found successfully!"
+          else
+            echo "::error::Native library NOT found in publish folder!"
+            exit 1
+          fi
+
+      # 6. Archive the binaries
+      - name: Archive Release
+        uses: thedoctor0/zip-release@0.7.6
+        with:
+          type: 'zip'
+          filename: '${{ matrix.artifact_name }}.zip'
+          directory: './publish'
+          path: '.'
+
+      # 7. Create the Release on GitHub and upload the files
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: ./publish/${{ matrix.artifact_name }}.zip
+          draft: true
+          prerelease: false  # Set to true if it's a beta

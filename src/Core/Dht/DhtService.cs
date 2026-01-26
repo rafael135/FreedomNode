@@ -159,9 +159,9 @@ public class DhtService
 
         try
         {
-            new FixedHeader(0x03, requestId, (uint)payloadSize).WriteToSpan(
-                buffer.AsSpan(0, FixedHeader.Size)
-            );
+            FixedHeader
+                .Create(0x03, requestId, targetId.Span)
+                .WriteToSpan(buffer.AsSpan(0, FixedHeader.Size));
 
             // Payload (Target ID)
             targetId.Span.CopyTo(buffer.AsSpan(FixedHeader.Size));
