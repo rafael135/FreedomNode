@@ -1,11 +1,14 @@
 using System.Buffers;
 using System.Net;
 using System.Numerics;
+using System.Security.Cryptography;
 using System.Threading.Channels;
 using FalconNode.Core.Messages;
 using FalconNode.Core.Network;
 using FalconNode.Core.State;
 using FalconNode.Workers;
+using Microsoft.VisualBasic;
+using NSec.Cryptography;
 
 namespace FalconNode.Core.Dht;
 
@@ -216,5 +219,170 @@ public class DhtService
         // and make the node known in the DHT network.
         await LookupAsync(_settings.LocalNodeId);
         _logger.LogInformation("DHT Bootstrap completed.");
+    }
+
+    /// <summary>
+    /// Publishes a mutable record to the DHT by sending PUT requests to the closest nodes to the record's owner's public key.
+    /// </summary>
+    /// <param name="record">The mutable record to be published.</param>
+    /// <returns>A task representing the asynchronous publish operation.</returns>
+    public async Task PublishRecordAsync(MutableRecord record)
+    {
+        // 1. Prepare the target ID based on the owner's public key
+        // Prioritizes publishing to nodes closest to the owner's public key
+        byte[] publicKeyBytes = record.Owner.Export(KeyBlobFormat.RawPublicKey);
+
+        var targetId = new NodeId(SHA256.HashData(publicKeyBytes));
+
+        // 2. Lookup closest nodes to the target ID
+        var nodes = await LookupAsync(targetId);
+
+        // 3. Send PUT requests to the closest nodes (Redundancy factor of 5)
+        var tasks = nodes.Take(5).Select(node => SendPutRequest(node.Endpoint, record));
+        await Task.WhenAll(tasks);
+
+        _logger.LogInformation(
+            $"Published mutable record with sequence {record.Sequence} to {nodes.Count} nodes."
+        );
+    }
+
+    /// <summary>
+    /// Retrieves a mutable record from the DHT for the specified target public key bytes.
+    /// </summary>
+    /// <param name="targetPublicKeyBytes">The raw bytes of the target public key.</param>
+    /// <returns>A task that represents the asynchronous operation. The task result contains the retrieved mutable record, or null if not found.</returns>
+    public async Task<MutableRecord?> GetRecordAsync(byte[] targetPublicKeyBytes)
+    {
+        var targetId = new NodeId(SHA256.HashData(targetPublicKeyBytes));
+        var nodes = await LookupAsync(targetId);
+
+        MutableRecord? bestRecord = null;
+
+        foreach (var node in nodes)
+        {
+            var record = await SendGetRequest(node.Endpoint, targetPublicKeyBytes);
+
+            if (record != null && record.IsValid())
+            {
+                if (bestRecord == null || record.Sequence > bestRecord.Sequence)
+                {
+                    bestRecord = record;
+                }
+            }
+        }
+
+        return bestRecord;
+    }
+
+    /// <summary>
+    /// Sends a PUT request to a specified endpoint to store a mutable record in the DHT.
+    /// </summary>
+    /// <param name="endpoint">The endpoint to which the PUT request will be sent.</param>
+    /// <param name="record">The mutable record to be stored.</param>
+    /// <returns>A task representing the asynchronous send operation.</returns>
+    private async Task SendPutRequest(IPEndPoint endpoint, MutableRecord record)
+    {
+        // OpCode 0x10 = PUT_VALUE
+        var request = new PutValueRequest(record);
+        int payloadSize = request.CalculateSize();
+        int totalSize = FixedHeader.Size + payloadSize;
+
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(totalSize);
+
+        try
+        {
+            // We use RequestId 0 because PUT is generally fire-and-forget (non-blocking)
+            // or we can implement ACK later if desired.
+            new FixedHeader(0x10, 0, (uint)payloadSize).WriteToSpan(
+                buffer.AsSpan(0, FixedHeader.Size)
+            );
+
+            request.WriteToSpan(buffer.AsSpan(FixedHeader.Size));
+
+            OutgoingMessage msg = new OutgoingMessage(
+                endpoint,
+                buffer.AsMemory(0, totalSize),
+                buffer
+            );
+            await _outWriter.WriteAsync(msg);
+        }
+        catch
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+            // Log error optional
+        }
+    }
+
+    /// <summary>
+    /// Sends a GET request to a specified endpoint to retrieve a mutable record from the DHT.
+    /// </summary>
+    /// <param name="endpoint">The endpoint to which the GET request will be sent.</param>
+    /// <param name="targetPublicKeyBytes">The raw bytes of the target public key.</param>
+    /// <returns>A task that represents the asynchronous operation. The task result contains the retrieved mutable record, or null if not found.</returns>
+    private async Task<MutableRecord?> SendGetRequest(
+        IPEndPoint endpoint,
+        byte[] targetPublicKeyBytes
+    )
+    {
+        // OpCode 0x11 = GET_VALUE_REQ
+        uint requestId = _requestManager.NextId();
+
+        // Import the key to create the request
+        var key = PublicKey.Import(
+            SignatureAlgorithm.Ed25519,
+            targetPublicKeyBytes,
+            KeyBlobFormat.RawPublicKey
+        );
+        var request = new GetValueRequest(key);
+
+        int payloadSize = 32; // Size of the PubKey Raw
+        int totalSize = FixedHeader.Size + payloadSize;
+
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(totalSize);
+
+        try
+        {
+            new FixedHeader(0x11, requestId, (uint)payloadSize).WriteToSpan(
+                buffer.AsSpan(0, FixedHeader.Size)
+            );
+            request.WriteToSpan(buffer.AsSpan(FixedHeader.Size));
+
+            var responseTask = _requestManager.RegisterRequestAsync(
+                requestId,
+                TimeSpan.FromSeconds(3)
+            );
+
+            OutgoingMessage msg = new OutgoingMessage(
+                endpoint,
+                buffer.AsMemory(0, totalSize),
+                buffer
+            );
+            await _outWriter.WriteAsync(msg);
+
+            var responsePacket = await responseTask;
+
+            // OpCode 0x12 = GET_VALUE_RES
+            if (responsePacket.MessageType == 0x12)
+            {
+                try
+                {
+                    var response = GetValueResponse.ReadFromSpan(responsePacket.Payload.Span);
+                    if (response.Found && response.Record != null)
+                    {
+                        return response.Record;
+                    }
+                }
+                finally
+                {
+                    ArrayPool<byte>.Shared.Return(responsePacket.OriginalBufferReference);
+                }
+            }
+        }
+        catch
+        {
+            // Ignore timeouts/errors
+        }
+
+        return null;
     }
 }

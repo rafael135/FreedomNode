@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Net;
 using FalconNode.Core.Network;
+using NSec.Cryptography;
 
 namespace FalconNode.Core.Dht;
 
@@ -168,5 +169,125 @@ public readonly struct FindNodeResponse
         }
 
         return new FindNodeResponse(contacts);
+    }
+}
+
+/// <summary>
+/// Message send for publish (store) a mutable record on the network.
+/// Payload: [Serialized MutableRecord]
+/// </summary>
+public readonly struct PutValueRequest
+{
+    public readonly MutableRecord Record;
+
+    public PutValueRequest(MutableRecord record) => Record = record;
+
+    public int CalculateSize() => Record.CalculateSize();
+
+    public void WriteToSpan(Span<byte> dest) => Record.WriteToSpan(dest);
+
+    public static PutValueRequest ReadFromSpan(ReadOnlySpan<byte> src)
+    {
+        var record = MutableRecord.ReadFromSpan(src);
+        return new PutValueRequest(record);
+    }
+}
+
+/// <summary>
+/// Message sent to request a mutable record from a specific user.
+/// Payload: [TargetPublicKey (32 bytes)]
+/// </summary>
+public readonly struct GetValueRequest
+{
+    public readonly PublicKey TargetOwner;
+
+    public GetValueRequest(PublicKey targetOwner) => TargetOwner = targetOwner;
+
+    /// <summary>
+    /// Serializes the <see cref="GetValueRequest"/> into the provided <see cref="Span{Byte}"/>.
+    /// The serialization format consists of the 32-byte target public key.
+    /// </summary>
+    /// <param name="dest">The destination span to write the serialized data.</param>
+    public void WriteToSpan(Span<byte> dest)
+    {
+        // Exports the public key in Raw format (32 bytes for Ed25519)
+        byte[] publicKeyBytes = TargetOwner.Export(KeyBlobFormat.RawPublicKey);
+        publicKeyBytes.CopyTo(dest);
+    }
+
+    /// <summary>
+    /// Deserializes a <see cref="GetValueRequest"/> object from a binary span.
+    /// The span is expected to contain a 32-byte target public key.
+    /// </summary>
+    /// <param name="src">The source span containing the serialized data.</param>
+    /// <returns>A deserialized <see cref="GetValueRequest"/> object.</returns>
+    public static GetValueRequest ReadFromSpan(ReadOnlySpan<byte> src)
+    {
+        // Imports the public key.
+        // Note: SignatureAlgorithm.Ed25519 must be accessible here or passed.
+        // Assuming we have static or injected access. For simple DTOs,
+        // we usually use a static reference to the algorithm.
+        var key = PublicKey.Import(
+            SignatureAlgorithm.Ed25519,
+            src.Slice(0, 32),
+            KeyBlobFormat.RawPublicKey
+        );
+        return new GetValueRequest(key);
+    }
+}
+
+/// <summary>
+/// Response containing the found mutable record (or empty if not found).
+/// Payload: [FoundFlag (1 byte)] + [MutableRecord (Optional)]
+/// </summary>
+public readonly struct GetValueResponse
+{
+    public readonly bool Found;
+    public readonly MutableRecord? Record;
+
+    public GetValueResponse(MutableRecord? record)
+    {
+        Found = record != null;
+        Record = record;
+    }
+
+    /// <summary>
+    /// Calculates the size in bytes required to serialize this response.
+    /// </summary>
+    /// <returns>The size in bytes required for serialization.</returns>
+    public int CalculateSize()
+    {
+        // 1 byte (Found) + Size of Record (if exists)
+        return 1 + (Found && Record != null ? Record.CalculateSize() : 0);
+    }
+
+    /// <summary>
+    /// Serializes the <see cref="GetValueResponse"/> into the provided <see cref="Span{Byte}"/>.
+    /// The serialization format consists of a 1-byte Found flag followed by the serialized
+    /// </summary>
+    /// <param name="dest">The destination span to write the serialized data.</param>
+    public void WriteToSpan(Span<byte> dest)
+    {
+        dest[0] = Found ? (byte)1 : (byte)0;
+        if (Found && Record != null)
+        {
+            Record.WriteToSpan(dest.Slice(1));
+        }
+    }
+
+    /// <summary>
+    /// Deserializes a <see cref="GetValueResponse"/> object from a binary span.
+    /// The span is expected to contain a 1-byte Found flag followed by the serialized
+    /// </summary>
+    /// <param name="src">The source span containing the serialized data.</param>
+    /// <returns>A deserialized <see cref="GetValueResponse"/> object.</returns>
+    public static GetValueResponse ReadFromSpan(ReadOnlySpan<byte> src)
+    {
+        bool found = src[0] == 1;
+        if (!found)
+            return new GetValueResponse(null);
+
+        var record = MutableRecord.ReadFromSpan(src.Slice(1));
+        return new GetValueResponse(record);
     }
 }

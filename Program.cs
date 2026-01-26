@@ -111,6 +111,7 @@ builder.Services.AddSingleton<RoutingTable>();
 builder.Services.AddSingleton<DhtService>();
 
 // File Storage
+builder.Services.AddSingleton<DhtStore>();
 builder.Services.AddSingleton<BlobStore>();
 builder.Services.AddSingleton<FileIngestor>();
 builder.Services.AddSingleton<FileRetriever>();
