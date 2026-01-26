@@ -293,9 +293,7 @@ public class DhtService
         {
             // We use RequestId 0 because PUT is generally fire-and-forget (non-blocking)
             // or we can implement ACK later if desired.
-            new FixedHeader(0x10, 0, (uint)payloadSize).WriteToSpan(
-                buffer.AsSpan(0, FixedHeader.Size)
-            );
+            FixedHeader.Create(0x10, 0, buffer).WriteToSpan(buffer.AsSpan(0, FixedHeader.Size));
 
             request.WriteToSpan(buffer.AsSpan(FixedHeader.Size));
 
@@ -342,9 +340,9 @@ public class DhtService
 
         try
         {
-            new FixedHeader(0x11, requestId, (uint)payloadSize).WriteToSpan(
-                buffer.AsSpan(0, FixedHeader.Size)
-            );
+            FixedHeader
+                .Create(0x11, requestId, buffer)
+                .WriteToSpan(buffer.AsSpan(0, FixedHeader.Size));
             request.WriteToSpan(buffer.AsSpan(FixedHeader.Size));
 
             var responseTask = _requestManager.RegisterRequestAsync(

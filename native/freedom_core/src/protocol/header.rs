@@ -15,6 +15,9 @@ pub enum MessageType {
     StoreRes = 0x06,
     Fetch = 0x07,
     FetchRes = 0x08,
+    Put = 0x0A,
+    GetValueReq = 0x0B,
+    GetValueRes = 0x0C,
     // Add a fallback for unknown types to handle forward compatibility safely
     Unknown = 0xFF,
 }
@@ -30,6 +33,9 @@ impl From<u8> for MessageType {
             0x06 => MessageType::StoreRes,
             0x07 => MessageType::Fetch,
             0x08 => MessageType::FetchRes,
+            0x0A => MessageType::Put,
+            0x0B => MessageType::GetValueReq,
+            0x0C => MessageType::GetValueRes,
             _ => MessageType::Unknown,
         }
     }
